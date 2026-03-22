@@ -1,0 +1,33 @@
+name: build-tauri
+
+on:
+  push:
+    branches:
+      - master
+
+jobs:
+  build:
+    runs-on: macos-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: setup node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: install rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: install dependencies
+        run: npm install
+
+      - name: build tauri
+        run: npm run tauri build
+
+      - name: upload mac build
+        uses: actions/upload-artifact@v4
+        with:
+          name: hazpenztar-mac
+          path: src-tauri/target/release/bundle

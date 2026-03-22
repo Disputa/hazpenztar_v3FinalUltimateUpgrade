@@ -1,0 +1,16 @@
+{
+  "name": "hazpenztar",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "tauri": "tauri"
+  },
+  "devDependencies": {
+    "@tauri-apps/cli": "^2"
+  },
+  "dependencies": {
+    "chart.js": "^4.5.1",
+    "recharts": "^3.8.0"
+  }
+}
