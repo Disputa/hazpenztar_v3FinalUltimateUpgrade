@@ -6,14 +6,24 @@ const backup = JSON.parse(fs.readFileSync(dataPath, "utf8"));
 const data = backup.data;
 
 const defaultApartments = [
-  { id: 1, name: "Lakás 1", monthlyFee: 12000 },
-  { id: 2, name: "Lakás 2", monthlyFee: 12000 },
-  { id: 3, name: "Lakás 3", monthlyFee: 12000 },
-  { id: 4, name: "Lakás 4", monthlyFee: 12000 },
-  { id: 5, name: "Lakás 5", monthlyFee: 12000 },
-  { id: 6, name: "Garázs 1", monthlyFee: 12000 },
-  { id: 7, name: "Garázs 2", monthlyFee: 12000 }
+  { id: 1, name: "Békéssy Klára", monthlyFee: 12000 },
+  { id: 2, name: "Pócz János", monthlyFee: 12000 },
+  { id: 3, name: "Fazekas Sándor", monthlyFee: 12000 },
+  { id: 4, name: "Komoróczki Gábor", monthlyFee: 12000 },
+  { id: 5, name: "Lits László", monthlyFee: 12000 },
+  { id: 6, name: "Janauschek Ernő", monthlyFee: 12000 },
+  { id: 7, name: "Vörös Miklós", monthlyFee: 12000 }
 ];
+
+const genericApartmentNames = new Map([
+  [1, "Lakás 1"],
+  [2, "Lakás 2"],
+  [3, "Lakás 3"],
+  [4, "Lakás 4"],
+  [5, "Lakás 5"],
+  [6, "Garázs 1"],
+  [7, "Garázs 2"]
+]);
 
 function parseMoney(value) {
   if (typeof value === "number") {
@@ -37,6 +47,16 @@ function normalizeMoney(value) {
   return Math.abs(amount - roundedInteger) < 0.0000001 ? roundedInteger : amount;
 }
 
+function defaultApartmentName(id) {
+  return defaultApartments.find(apartment => apartment.id === Number(id))?.name || `Lakás ${id}`;
+}
+
+function resolveApartmentName(id, value) {
+  const trimmed = String(value || "").trim();
+  const genericName = genericApartmentNames.get(Number(id));
+  return !trimmed || trimmed === genericName ? defaultApartmentName(id) : trimmed;
+}
+
 function normalizeApartments(apartments, entries = []) {
   const byId = new Map(defaultApartments.map(apartment => [apartment.id, { ...apartment }]));
 
@@ -47,7 +67,7 @@ function normalizeApartments(apartments, entries = []) {
 
       byId.set(id, {
         id,
-        name: String(apartment?.name || `Lakás ${id}`).trim() || `Lakás ${id}`,
+        name: resolveApartmentName(id, apartment?.name),
         monthlyFee: normalizeMoney(apartment?.monthlyFee)
       });
     }
@@ -61,7 +81,7 @@ function normalizeApartments(apartments, entries = []) {
 
       byId.set(id, {
         id,
-        name: String(entry.apartmentName || `Lakás ${id}`).trim() || `Lakás ${id}`,
+        name: resolveApartmentName(id, entry.apartmentName),
         monthlyFee: 0
       });
     }
@@ -113,8 +133,8 @@ const entryIds = normalized.entries.map(entry => entry.id);
 
 assert.equal(normalized.apartments.length, 7, "A törzslistában 5 lakásnak és 2 garázsnak kell lennie.");
 assert.deepEqual(
-  normalized.apartments.filter(apartment => apartment.name.includes("Garázs")).map(apartment => apartment.name),
-  ["Garázs 1", "Garázs 2"]
+  normalized.apartments.map(apartment => apartment.name),
+  ["Békéssy Klára", "Pócz János", "Fazekas Sándor", "Komoróczki Gábor", "Lits László", "Janauschek Ernő", "Vörös Miklós"]
 );
 assert.equal(normalized.entries.length, 544, "A javított mentésből nem veszhet el tranzakció.");
 assert.equal(new Set(entryIds).size, entryIds.length, "Nem lehet duplikált tranzakció ID.");

@@ -21,6 +21,7 @@
 ## Elkészült fejlesztések
 
 - PDF munkaterület az alkalmazáson belül:
+  - külön `PDF riportok` bal oldali menüpont,
   - havi PDF-ek listázása és előnézete,
   - teljes adatbázis PDF generálása és előnézete,
   - PDF megnyitása,
@@ -31,7 +32,17 @@
   - app identifier változatlan: `com.deme.hazpenztar`,
   - productName változatlan: `hazpenztar`,
   - localStorage kulcs változatlan: `ovoda6a_hazpenztar_state_v1`,
-  - verzió emelve: `0.1.1`.
+  - verzió emelve: `0.1.3`,
+  - Windows update build MSI-only, stabil WiX upgrade azonosítóval.
+- Tulajdonosnevek visszaállítása:
+  - Lakás 1: Békéssy Klára,
+  - Lakás 2: Pócz János,
+  - Lakás 3: Fazekas Sándor,
+  - Lakás 4: Komoróczki Gábor,
+  - Lakás 5: Lits László,
+  - Garázs 1: Janauschek Ernő,
+  - Garázs 2: Vörös Miklós.
+- Saját alkalmazásikon beépítve a Tauri alapikon helyett.
 
 ## Blokkoló kérdések
 

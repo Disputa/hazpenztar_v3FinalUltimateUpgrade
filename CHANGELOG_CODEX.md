@@ -23,6 +23,11 @@
 - Update build jegyzet készült: `UPDATE_BUILD_NOTES.md`.
 - Update build elkészült: `hazpenztar_0.1.1_x64-setup.exe` és `hazpenztar_0.1.1_x64_en-US.msi`.
 - Drive-szinkron megtörtént új almappába, törlés nélkül: `CodexSync/update_0.1.1_20260509/`.
+- Tulajdonosnevek visszaállítva az állapot-normalizálásban: Lakás 1-5 és Garázs 1-2 generikus nevek helyett tulajdonosnevek.
+- PDF funkció külön, látható `PDF riportok` menüpontba került; generálás után az app erre a képernyőre vált.
+- Windows update build javítva: NSIS `.exe` helyett MSI-only csomag készül, stabil WiX upgrade azonosítóval.
+- Tauri alapikon lecserélve saját házpénztár ikonra; az ikonforrás: `assets/hazpenztar-icon.svg`.
+- Verzió emelve `0.1.3`-ra a tulajdonosnevek, a látható PDF menü és a valódi MSI update build miatt.
 
 ## 2026-05-06
 

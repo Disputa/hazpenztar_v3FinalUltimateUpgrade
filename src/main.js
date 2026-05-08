@@ -4,14 +4,24 @@ const STORAGE_KEY = "ovoda6a_hazpenztar_state_v1";
 const ACTIVE_SECTION_KEY = "ovoda6a_hazpenztar_active_section_v1";
 
 const DEFAULT_APARTMENTS = [
-  { id: 1, name: "Lakás 1", monthlyFee: 12000 },
-  { id: 2, name: "Lakás 2", monthlyFee: 12000 },
-  { id: 3, name: "Lakás 3", monthlyFee: 12000 },
-  { id: 4, name: "Lakás 4", monthlyFee: 12000 },
-  { id: 5, name: "Lakás 5", monthlyFee: 12000 },
-  { id: 6, name: "Garázs 1", monthlyFee: 12000 },
-  { id: 7, name: "Garázs 2", monthlyFee: 12000 }
+  { id: 1, name: "Békéssy Klára", monthlyFee: 12000 },
+  { id: 2, name: "Pócz János", monthlyFee: 12000 },
+  { id: 3, name: "Fazekas Sándor", monthlyFee: 12000 },
+  { id: 4, name: "Komoróczki Gábor", monthlyFee: 12000 },
+  { id: 5, name: "Lits László", monthlyFee: 12000 },
+  { id: 6, name: "Janauschek Ernő", monthlyFee: 12000 },
+  { id: 7, name: "Vörös Miklós", monthlyFee: 12000 }
 ];
+
+const GENERIC_APARTMENT_NAMES = new Map([
+  [1, "Lakás 1"],
+  [2, "Lakás 2"],
+  [3, "Lakás 3"],
+  [4, "Lakás 4"],
+  [5, "Lakás 5"],
+  [6, "Garázs 1"],
+  [7, "Garázs 2"]
+]);
 
 function createAutoBackup(reason = "manual") {
   try {
@@ -101,6 +111,21 @@ function positiveMoneyFromInput(value) {
   return amount > 0 ? amount : 0;
 }
 
+function defaultApartmentName(id) {
+  return DEFAULT_APARTMENTS.find(apartment => Number(apartment.id) === Number(id))?.name || `Lakás ${id}`;
+}
+
+function resolveApartmentName(id, value) {
+  const trimmed = String(value || "").trim();
+  const genericName = GENERIC_APARTMENT_NAMES.get(Number(id));
+
+  if (!trimmed || trimmed === genericName) {
+    return defaultApartmentName(id);
+  }
+
+  return trimmed;
+}
+
 function normalizeApartments(apartments, entries = []) {
   const byId = new Map();
 
@@ -115,7 +140,7 @@ function normalizeApartments(apartments, entries = []) {
 
       byId.set(id, {
         id,
-        name: String(apartment?.name || `Lakás ${id}`).trim() || `Lakás ${id}`,
+        name: resolveApartmentName(id, apartment?.name),
         monthlyFee: normalizeMoney(apartment?.monthlyFee)
       });
     }
@@ -130,7 +155,7 @@ function normalizeApartments(apartments, entries = []) {
 
       byId.set(id, {
         id,
-        name: String(entry.apartmentName || `Lakás ${id}`).trim() || `Lakás ${id}`,
+        name: resolveApartmentName(id, entry.apartmentName),
         monthlyFee: 0
       });
     }
@@ -638,6 +663,57 @@ function renderPdfWorkspace() {
   `;
 }
 
+function renderPdfReportControls(currentMonthKey) {
+  return `
+    <div class="form-grid">
+      <div class="span-2">
+        <label>Célmappa a PDF-ekhez</label>
+        <input
+          class="text-input full"
+          type="text"
+          value="${escapeHtml(state.reportSettings.targetFolder || "")}"
+          placeholder="Még nincs kiválasztva"
+          readonly
+        />
+      </div>
+
+      <div class="span-2 report-actions">
+        <button class="primary" type="button" onclick="app.chooseReportFolder()">Mappa kiválasztása</button>
+        <button class="primary" type="button" onclick="app.generateMonthlyReportsNow()">Havi PDF-ek</button>
+        <button class="primary" type="button" onclick="app.generateDatabasePdfNow()">Teljes adatbázis PDF</button>
+        <button class="primary" type="button" onclick="app.generateAllPdfNow()">Minden PDF elkészítése</button>
+        <button class="primary" type="button" onclick="app.exportBackup()">Adatbázis export / backup</button>
+        <input type="file" id="jsonImportInput" accept=".json" style="display:none" onchange="app.importJson()" />
+        <button type="button" onclick="document.getElementById('jsonImportInput').click()">Adatbázis JSON import</button>
+      </div>
+
+      <div class="span-2 checkbox-row">
+        <input
+          id="autoMonthlyEnabled"
+          type="checkbox"
+          ${state.reportSettings.autoMonthlyEnabled ? "checked" : ""}
+          onchange="app.setAutoMonthlyEnabled(this.checked)"
+        />
+        <label for="autoMonthlyEnabled" class="checkbox-label">Havonta egyszer automatikus generálás</label>
+      </div>
+
+      <div class="span-2 hint-text">
+        Aktuális hónap: <strong>${currentMonthKey}</strong><br>
+        Reporton megjelenő hónap: <strong>${escapeHtml(monthLabelHu(currentMonthKey))}</strong><br>
+        Utoljára legenerált hónap: <strong>${escapeHtml(state.reportSettings.lastGeneratedMonth || "még nincs")}</strong>
+      </div>
+
+      ${reportStatus.text ? `
+        <div class="span-2 status-box ${reportStatus.kind}">
+          ${escapeHtml(reportStatus.text)}
+        </div>
+      ` : ""}
+
+      ${renderPdfWorkspace()}
+    </div>
+  `;
+}
+
 function renderEntryRows(entries, archivedMode = false) {
   if (entries.length === 0) {
     return `
@@ -699,6 +775,7 @@ function render() {
         <button class="menu" data-section="paymentsSection">Befizetések</button>
         <button class="menu" data-section="expensesSection">Kiadások</button>
         <button class="menu" data-section="ledgerSection">Pénztárnapló</button>
+        <button class="menu" data-section="pdfSection">PDF riportok</button>
         <button class="menu" data-section="settingsSection">Beállítások</button>
       </aside>
 
@@ -869,6 +946,11 @@ function render() {
           </div>
         </section>
 
+        <section id="pdfSection" class="app-section card">
+          <h2>PDF riportok, nyomtatás és e-mail</h2>
+          ${renderPdfReportControls(currentMonthKey)}
+        </section>
+
         <section id="settingsSection" class="app-section card">
           <h2>Beállítások és titkos parancs</h2>
 
@@ -902,59 +984,6 @@ function render() {
               <button type="button" class="primary" onclick="app.checkEasterEgg()">Ellenőrzés</button>
             </div>
             <div id="easterResult" class="mt12"></div>
-          </div>
-
-          <hr class="sep" />
-
-          <div>
-            <h3>Havi PDF reportok</h3>
-
-            <div class="form-grid">
-              <div class="span-2">
-                <label>Célmappa a Mac-en</label>
-                <input
-                  class="text-input full"
-                  type="text"
-                  value="${escapeHtml(state.reportSettings.targetFolder || "")}"
-                  placeholder="Még nincs kiválasztva"
-                  readonly
-                />
-              </div>
-
-              <div class="span-2 report-actions">
-                <button class="primary" type="button" onclick="app.chooseReportFolder()">Mappa kiválasztása</button>
-                <button class="primary" type="button" onclick="app.generateMonthlyReportsNow()">Havi PDF-ek</button>
-                <button class="primary" type="button" onclick="app.generateDatabasePdfNow()">Teljes adatbázis PDF</button>
-                <button class="primary" type="button" onclick="app.generateAllPdfNow()">Minden PDF elkészítése</button>
-                <button class="primary" type="button" onclick="app.exportBackup()">Adatbázis export / backup</button>
-				<input type="file" id="jsonImportInput" accept=".json" style="display:none" onchange="app.importJson()" />
-				<button onclick="document.getElementById('jsonImportInput').click()">Adatbázis JSON import</button>
-			  </div>
-
-              <div class="span-2 checkbox-row">
-                <input
-                  id="autoMonthlyEnabled"
-                  type="checkbox"
-                  ${state.reportSettings.autoMonthlyEnabled ? "checked" : ""}
-                  onchange="app.setAutoMonthlyEnabled(this.checked)"
-                />
-                <label for="autoMonthlyEnabled" class="checkbox-label">Havonta egyszer automatikus generálás</label>
-              </div>
-
-              <div class="span-2 hint-text">
-                Aktuális hónap: <strong>${currentMonthKey}</strong><br>
-                Reporton megjelenő hónap: <strong>${escapeHtml(monthLabelHu(currentMonthKey))}</strong><br>
-                Utoljára legenerált hónap: <strong>${escapeHtml(state.reportSettings.lastGeneratedMonth || "még nincs")}</strong>
-              </div>
-
-              ${reportStatus.text ? `
-                <div class="span-2 status-box ${reportStatus.kind}">
-                  ${escapeHtml(reportStatus.text)}
-                </div>
-              ` : ""}
-
-              ${renderPdfWorkspace()}
-            </div>
           </div>
         </section>
 
@@ -1575,6 +1604,7 @@ function applyActiveSection(sectionId) {
     "paymentsSection",
     "expensesSection",
     "ledgerSection",
+    "pdfSection",
     "settingsSection"
   ];
 
@@ -1632,7 +1662,7 @@ const app = {
   renameApartment(id, value) {
     const apt = state.apartments.find(a => Number(a.id) === Number(id));
     if (!apt) return;
-    apt.name = value.trim() || `Lakás ${id}`;
+    apt.name = resolveApartmentName(id, value);
     for (const entry of state.entries) {
       if (entry.type === "payment" && Number(entry.apartmentId) === Number(id)) {
         entry.apartmentName = apt.name;
@@ -1726,7 +1756,7 @@ const app = {
 
   async generateMonthlyReportsNow() {
     clearReportStatus();
-    setActiveSection("settingsSection");
+    setActiveSection("pdfSection");
 
     try {
       const monthKey = monthKeyFromDate(new Date());
@@ -1738,7 +1768,7 @@ const app = {
 
   async generateDatabasePdfNow() {
     clearReportStatus();
-    setActiveSection("settingsSection");
+    setActiveSection("pdfSection");
 
     try {
       if (!state.reportSettings.targetFolder) {
@@ -1766,7 +1796,7 @@ const app = {
 
   async generateAllPdfNow() {
     clearReportStatus();
-    setActiveSection("settingsSection");
+    setActiveSection("pdfSection");
 
     try {
       const monthKey = monthKeyFromDate(new Date());

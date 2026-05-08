@@ -15,13 +15,22 @@ Ezeket nem szabad átnevezni, mert az adatmegőrzés és a frissítési útvonal
 ## Verziózás
 
 - Korábbi build: `0.1.0`
-- Jelen update build: `0.1.1`
+- PDF/update build: `0.1.1`
+- Tulajdonosnév update build: `0.1.2`
+- Látható PDF menü + MSI-only update build: `0.1.3`
 
-Windows MSI/NSIS frissítéshez a verziót emelni kell, miközben az app azonosítója változatlan marad.
+Windows frissítéshez a verziót emelni kell, miközben az app azonosítója változatlan marad. A frissítőcsomag MSI legyen; az NSIS `.exe` telepítő eltávolítási kérdései miatt nem tekintendő update buildnek.
+
+## Update telepítő
+
+- Használandó fájl: `hazpenztar_0.1.3_x64_en-US.msi`
+- A build Windows célja szándékosan csak MSI: `bundle.targets = ["msi"]`
+- Stabil WiX upgrade azonosító: `f8f9fe9b-1a00-5dd2-ae41-7e21f625d15e`
+- A Tauri alapikon helyett saját házpénztár ikon kerül a buildbe.
 
 ## Ellenőrzés telepítés előtt
 
 1. Készíts JSON exportot az éles programból.
-2. Futtasd az új `hazpenztar_0.1.1_x64-setup.exe` telepítőt.
+2. Futtasd az új `hazpenztar_0.1.3_x64_en-US.msi` telepítőt.
 3. Indítás után ellenőrizd, hogy a korábbi adatok megmaradtak.
-4. Ellenőrizd a garázsokat, a pénztárösszeget és a PDF munkaterületet.
+4. Ellenőrizd a garázsokat, a tulajdonosneveket, a pénztárösszeget és a `PDF riportok` menüpontot.

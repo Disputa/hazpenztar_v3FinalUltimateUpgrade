@@ -1,0 +1,34 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024">
+  <defs>
+    <linearGradient id="bg" x1="132" y1="96" x2="892" y2="928" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#184e45"/>
+      <stop offset="0.52" stop-color="#256f5f"/>
+      <stop offset="1" stop-color="#e0a932"/>
+    </linearGradient>
+    <linearGradient id="coin" x1="346" y1="406" x2="744" y2="804" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#ffe7a1"/>
+      <stop offset="1" stop-color="#d89018"/>
+    </linearGradient>
+    <filter id="shadow" x="-20%" y="-20%" width="140%" height="150%" color-interpolation-filters="sRGB">
+      <feDropShadow dx="0" dy="24" stdDeviation="28" flood-color="#09231f" flood-opacity="0.28"/>
+    </filter>
+  </defs>
+
+  <rect width="1024" height="1024" rx="220" fill="url(#bg)"/>
+  <circle cx="792" cy="210" r="84" fill="#f6d77c" opacity="0.22"/>
+  <circle cx="200" cy="800" r="130" fill="#ffffff" opacity="0.08"/>
+
+  <g filter="url(#shadow)">
+    <path d="M222 462 512 228l290 234v352c0 45-37 82-82 82H304c-45 0-82-37-82-82V462Z" fill="#f7f2df"/>
+    <path d="M170 471 494 210c11-9 25-14 39-14s28 5 39 14l324 261c22 18 26 51 8 73-18 23-51 26-73 8L512 295 193 552c-22 18-55 15-73-8-18-22-15-55 8-73Z" fill="#153f38"/>
+    <path d="M337 523c0-30 24-54 54-54h242c30 0 54 24 54 54v282H337V523Z" fill="#245d52"/>
+    <rect x="401" y="528" width="222" height="76" rx="24" fill="#f7f2df"/>
+  </g>
+
+  <g filter="url(#shadow)">
+    <circle cx="590" cy="673" r="173" fill="url(#coin)"/>
+    <circle cx="590" cy="673" r="128" fill="none" stroke="#fff1b8" stroke-width="28" opacity="0.86"/>
+    <path d="M590 557v232" stroke="#7c4b08" stroke-width="44" stroke-linecap="round"/>
+    <path d="M514 622c19-42 58-65 105-55 36 8 59 33 63 66 6 52-32 80-87 91-42 8-66 22-73 53" fill="none" stroke="#7c4b08" stroke-width="44" stroke-linecap="round"/>
+  </g>
+</svg>
