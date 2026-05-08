@@ -3,6 +3,16 @@
 const STORAGE_KEY = "ovoda6a_hazpenztar_state_v1";
 const ACTIVE_SECTION_KEY = "ovoda6a_hazpenztar_active_section_v1";
 
+const DEFAULT_APARTMENTS = [
+  { id: 1, name: "Lakás 1", monthlyFee: 12000 },
+  { id: 2, name: "Lakás 2", monthlyFee: 12000 },
+  { id: 3, name: "Lakás 3", monthlyFee: 12000 },
+  { id: 4, name: "Lakás 4", monthlyFee: 12000 },
+  { id: 5, name: "Lakás 5", monthlyFee: 12000 },
+  { id: 6, name: "Garázs 1", monthlyFee: 12000 },
+  { id: 7, name: "Garázs 2", monthlyFee: 12000 }
+];
+
 function createAutoBackup(reason = "manual") {
   try {
     const state = JSON.parse(localStorage.getItem(STORAGE_KEY) || "{}");
@@ -44,13 +54,7 @@ let autoMonthlyCheckStarted = false;
 function defaultState() {
   return {
     openingCash: 0,
-    apartments: [
-      { id: 1, name: "Lakás 1", monthlyFee: 12000 },
-      { id: 2, name: "Lakás 2", monthlyFee: 12000 },
-      { id: 3, name: "Lakás 3", monthlyFee: 12000 },
-      { id: 4, name: "Lakás 4", monthlyFee: 12000 },
-      { id: 5, name: "Lakás 5", monthlyFee: 12000 }
-    ],
+    apartments: DEFAULT_APARTMENTS.map(apartment => ({ ...apartment })),
     entries: [],
     reportSettings: {
       targetFolder: "",
@@ -63,38 +67,134 @@ function defaultState() {
   };
 }
 
+function parseMoney(value) {
+  if (typeof value === "number") {
+    return Number.isFinite(value) ? value : 0;
+  }
+
+  const normalized = String(value ?? "")
+    .trim()
+    .replace(/\s/g, "")
+    .replace(",", ".");
+
+  if (!normalized) return 0;
+
+  const parsed = Number(normalized);
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
+function normalizeMoney(value) {
+  const amount = parseMoney(value);
+  const roundedInteger = Math.round(amount);
+  return Math.abs(amount - roundedInteger) < 0.0000001 ? roundedInteger : amount;
+}
+
+function positiveMoneyFromInput(value) {
+  const amount = normalizeMoney(value);
+  return amount > 0 ? amount : 0;
+}
+
+function normalizeApartments(apartments, entries = []) {
+  const byId = new Map();
+
+  for (const apartment of DEFAULT_APARTMENTS) {
+    byId.set(Number(apartment.id), { ...apartment });
+  }
+
+  if (Array.isArray(apartments)) {
+    for (const apartment of apartments) {
+      const id = Number(apartment?.id);
+      if (!Number.isFinite(id) || id <= 0) continue;
+
+      byId.set(id, {
+        id,
+        name: String(apartment?.name || `Lakás ${id}`).trim() || `Lakás ${id}`,
+        monthlyFee: normalizeMoney(apartment?.monthlyFee)
+      });
+    }
+  }
+
+  if (Array.isArray(entries)) {
+    for (const entry of entries) {
+      if (entry?.type !== "payment") continue;
+
+      const id = Number(entry.apartmentId);
+      if (!Number.isFinite(id) || id <= 0 || byId.has(id)) continue;
+
+      byId.set(id, {
+        id,
+        name: String(entry.apartmentName || `Lakás ${id}`).trim() || `Lakás ${id}`,
+        monthlyFee: 0
+      });
+    }
+  }
+
+  return [...byId.values()].sort((a, b) => Number(a.id) - Number(b.id));
+}
+
+function normalizeEntries(entries, apartments) {
+  const apartmentById = new Map(apartments.map(apartment => [Number(apartment.id), apartment]));
+
+  if (!Array.isArray(entries)) return [];
+
+  return entries
+    .filter(entry => entry && (entry.type === "payment" || entry.type === "expense"))
+    .map(entry => {
+      const normalized = {
+        ...entry,
+        amount: normalizeMoney(entry.amount),
+        archived: Boolean(entry.archived)
+      };
+
+      if (normalized.type === "payment") {
+        const apartmentId = Number(normalized.apartmentId);
+        if (Number.isFinite(apartmentId) && apartmentId > 0) {
+          const apartment = apartmentById.get(apartmentId);
+          normalized.apartmentId = apartmentId;
+          normalized.apartmentName = apartment?.name || String(normalized.apartmentName || `Lakás ${apartmentId}`);
+        } else {
+          normalized.apartmentId = null;
+          normalized.apartmentName = String(normalized.apartmentName || "Kézi ellenőrzés szükséges");
+        }
+      }
+
+      return normalized;
+    })
+    .filter(entry => entry.amount > 0);
+}
+
+function normalizeState(input = {}) {
+  const fallback = defaultState();
+  const rawEntries = Array.isArray(input.entries) ? input.entries : [];
+  const apartments = normalizeApartments(input.apartments, rawEntries);
+  const entries = normalizeEntries(rawEntries, apartments);
+
+  return {
+    openingCash: normalizeMoney(input.openingCash),
+    apartments,
+    entries,
+    reportSettings: {
+      targetFolder: String(input?.reportSettings?.targetFolder || ""),
+      autoMonthlyEnabled: typeof input?.reportSettings?.autoMonthlyEnabled === "boolean"
+        ? input.reportSettings.autoMonthlyEnabled
+        : fallback.reportSettings.autoMonthlyEnabled,
+      lastGeneratedMonth: String(input?.reportSettings?.lastGeneratedMonth || "")
+    },
+    uiSettings: {
+      showArchivedEntries: typeof input?.uiSettings?.showArchivedEntries === "boolean"
+        ? input.uiSettings.showArchivedEntries
+        : fallback.uiSettings.showArchivedEntries
+    }
+  };
+}
+
 function loadState() {
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
     if (!raw) return defaultState();
 
     const parsed = JSON.parse(raw);
-    const fallback = defaultState();
-
-    return {
-      openingCash: Number(parsed.openingCash || 0),
-      apartments: Array.isArray(parsed.apartments) && parsed.apartments.length === 5
-        ? parsed.apartments
-        : fallback.apartments,
-      entries: Array.isArray(parsed.entries)
-        ? parsed.entries.map(entry => ({
-            ...entry,
-            archived: Boolean(entry.archived)
-          }))
-        : [],
-      reportSettings: {
-        targetFolder: String(parsed?.reportSettings?.targetFolder || ""),
-        autoMonthlyEnabled: typeof parsed?.reportSettings?.autoMonthlyEnabled === "boolean"
-          ? parsed.reportSettings.autoMonthlyEnabled
-          : true,
-        lastGeneratedMonth: String(parsed?.reportSettings?.lastGeneratedMonth || "")
-      },
-      uiSettings: {
-        showArchivedEntries: typeof parsed?.uiSettings?.showArchivedEntries === "boolean"
-          ? parsed.uiSettings.showArchivedEntries
-          : false
-      }
-    };
+    return normalizeState(parsed);
   } catch {
     return defaultState();
   }
@@ -103,6 +203,7 @@ function loadState() {
 let state = loadState();
 
 function saveState() {
+  state = normalizeState(state);
   localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
 }
 
@@ -115,7 +216,9 @@ function setActiveSection(sectionId) {
 }
 
 function formatFt(value) {
-  return new Intl.NumberFormat("hu-HU").format(Number(value || 0)) + " Ft";
+  return new Intl.NumberFormat("hu-HU", {
+    maximumFractionDigits: 2
+  }).format(normalizeMoney(value)) + " Ft";
 }
 
 function pad2(value) {
@@ -187,29 +290,29 @@ function archivedEntries() {
 function totalPayments() {
   return activeEntries()
     .filter(e => e.type === "payment")
-    .reduce((sum, e) => sum + Number(e.amount), 0);
+    .reduce((sum, e) => normalizeMoney(sum + normalizeMoney(e.amount)), 0);
 }
 
 function totalExpenses() {
   return activeEntries()
     .filter(e => e.type === "expense")
-    .reduce((sum, e) => sum + Number(e.amount), 0);
+    .reduce((sum, e) => normalizeMoney(sum + normalizeMoney(e.amount)), 0);
 }
 
 function currentCash() {
-  return Number(state.openingCash) + totalPayments() - totalExpenses();
+  return normalizeMoney(state.openingCash) + totalPayments() - totalExpenses();
 }
 
 function apartmentPaid(apartmentId) {
   return activeEntries()
     .filter(e => e.type === "payment" && Number(e.apartmentId) === Number(apartmentId))
-    .reduce((sum, e) => sum + Number(e.amount), 0);
+    .reduce((sum, e) => normalizeMoney(sum + normalizeMoney(e.amount)), 0);
 }
 
 function apartmentBalance(apartmentId) {
   const apt = state.apartments.find(a => Number(a.id) === Number(apartmentId));
   if (!apt) return 0;
-  return apartmentPaid(apartmentId) - Number(apt.monthlyFee || 0);
+  return normalizeMoney(apartmentPaid(apartmentId) - normalizeMoney(apt.monthlyFee));
 }
 
 function sortedEntries() {
@@ -227,13 +330,13 @@ function entriesForMonth(monthKey) {
 function paymentsForMonth(monthKey) {
   return entriesForMonth(monthKey)
     .filter(entry => entry.type === "payment")
-    .reduce((sum, entry) => sum + Number(entry.amount), 0);
+    .reduce((sum, entry) => normalizeMoney(sum + normalizeMoney(entry.amount)), 0);
 }
 
 function expensesForMonth(monthKey) {
   return entriesForMonth(monthKey)
     .filter(entry => entry.type === "expense")
-    .reduce((sum, entry) => sum + Number(entry.amount), 0);
+    .reduce((sum, entry) => normalizeMoney(sum + normalizeMoney(entry.amount)), 0);
 }
 
 function apartmentPaidForMonth(apartmentId, monthKey) {
@@ -243,22 +346,22 @@ function apartmentPaidForMonth(apartmentId, monthKey) {
       Number(entry.apartmentId) === Number(apartmentId) &&
       entryMonthKey(entry) === monthKey
     )
-    .reduce((sum, entry) => sum + Number(entry.amount), 0);
+    .reduce((sum, entry) => normalizeMoney(sum + normalizeMoney(entry.amount)), 0);
 }
 
 function cashBeforeMonth(monthKey) {
   const [year, month] = monthKey.split("-").map(Number);
   const monthStart = new Date(year, month - 1, 1, 0, 0, 0, 0);
 
-  let balance = Number(state.openingCash);
+  let balance = normalizeMoney(state.openingCash);
 
   for (const entry of activeEntries()) {
     const date = entryDate(entry);
     if (date < monthStart) {
       if (entry.type === "payment") {
-        balance += Number(entry.amount);
+        balance = normalizeMoney(balance + normalizeMoney(entry.amount));
       } else if (entry.type === "expense") {
-        balance -= Number(entry.amount);
+        balance = normalizeMoney(balance - normalizeMoney(entry.amount));
       }
     }
   }
@@ -267,7 +370,7 @@ function cashBeforeMonth(monthKey) {
 }
 
 function cashAfterMonth(monthKey) {
-  return cashBeforeMonth(monthKey) + paymentsForMonth(monthKey) - expensesForMonth(monthKey);
+  return normalizeMoney(cashBeforeMonth(monthKey) + paymentsForMonth(monthKey) - expensesForMonth(monthKey));
 }
 
 function escapeHtml(text) {
@@ -309,7 +412,7 @@ function buildSummaryReportText(monthKey) {
 
   for (const apt of state.apartments) {
     const paid = apartmentPaidForMonth(apt.id, monthKey);
-    const monthlyBalance = paid - Number(apt.monthlyFee || 0);
+    const monthlyBalance = normalizeMoney(paid - normalizeMoney(apt.monthlyFee));
 
     lines.push(
       `${apt.id}. ${apt.name} | Havi közös költség: ${formatFt(apt.monthlyFee)} | Befizetve: ${formatFt(paid)} | Havi egyenleg: ${formatFt(monthlyBalance)}`
@@ -347,8 +450,8 @@ function buildApartmentReportText(apartment, monthKey) {
   );
 
   const paid = apartmentPaidForMonth(apartment.id, monthKey);
-  const monthlyFee = Number(apartment.monthlyFee || 0);
-  const monthlyBalance = paid - monthlyFee;
+  const monthlyFee = normalizeMoney(apartment.monthlyFee);
+  const monthlyBalance = normalizeMoney(paid - monthlyFee);
 
   const lines = [];
   lines.push("TÁRSASHÁZ ÓVODA UTCA 6/A");
@@ -514,7 +617,7 @@ function render() {
                       class="number-input"
                       type="number"
                       min="0"
-                      value="${Number(apt.monthlyFee)}"
+                      value="${normalizeMoney(apt.monthlyFee)}"
                       onchange="app.setMonthlyFee(${apt.id}, this.value)"
                     />
                   </td>
@@ -641,7 +744,7 @@ function render() {
               class="number-input"
               type="number"
               min="0"
-              value="${Number(state.openingCash)}"
+              value="${normalizeMoney(state.openingCash)}"
             />
             <button class="primary" onclick="app.saveOpeningCash()">Mentés</button>
           </div>
@@ -1279,6 +1382,11 @@ const app = {
     const apt = state.apartments.find(a => Number(a.id) === Number(id));
     if (!apt) return;
     apt.name = value.trim() || `Lakás ${id}`;
+    for (const entry of state.entries) {
+      if (entry.type === "payment" && Number(entry.apartmentId) === Number(id)) {
+        entry.apartmentName = apt.name;
+      }
+    }
     saveState();
     render();
   },
@@ -1286,14 +1394,14 @@ const app = {
   setMonthlyFee(id, value) {
     const apt = state.apartments.find(a => Number(a.id) === Number(id));
     if (!apt) return;
-    apt.monthlyFee = Math.max(0, Number(value || 0));
+    apt.monthlyFee = positiveMoneyFromInput(value);
     saveState();
     render();
   },
 
   saveOpeningCash() {
     const input = document.getElementById("openingCashInput");
-    state.openingCash = Math.max(0, Number(input.value || 0));
+    state.openingCash = positiveMoneyFromInput(input.value);
     saveState();
     render();
   },
@@ -1423,7 +1531,7 @@ const app = {
 
   addPayment() {
     const apartmentId = Number(document.getElementById("paymentApartment").value);
-    const amount = Number(document.getElementById("paymentAmount").value || 0);
+    const amount = positiveMoneyFromInput(document.getElementById("paymentAmount").value);
     const monthLabel = document.getElementById("paymentMonth").value.trim();
     const note = document.getElementById("paymentNote").value.trim();
 
@@ -1455,7 +1563,7 @@ const app = {
 
   addExpense() {
     const title = document.getElementById("expenseTitle").value.trim();
-    const amount = Number(document.getElementById("expenseAmount").value || 0);
+    const amount = positiveMoneyFromInput(document.getElementById("expenseAmount").value);
     const note = document.getElementById("expenseNote").value.trim();
 
     if (!title) {
@@ -1533,6 +1641,43 @@ const app = {
   replayCurtain() {
     localStorage.removeItem("curtainPlayed");
     render();
+  },
+
+  importJson() {
+    const input = document.getElementById("jsonImportInput");
+
+    if (!input || !input.files || !input.files[0]) {
+      alert("Válassz ki egy JSON fájlt!");
+      return;
+    }
+
+    const file = input.files[0];
+    const reader = new FileReader();
+
+    reader.onload = function (event) {
+      try {
+        const json = JSON.parse(event.target.result);
+
+        if (!json || !json.data || typeof json.data !== "object") {
+          alert("Hibás JSON formátum!");
+          return;
+        }
+
+        createAutoBackup("before_json_import");
+        state = normalizeState(json.data);
+        saveState();
+        render();
+
+        alert("Sikeres import!");
+      } catch (err) {
+        console.error(err);
+        alert("Hiba történt a betöltés során!");
+      } finally {
+        input.value = "";
+      }
+    };
+
+    reader.readAsText(file);
   }
 };
 
@@ -1542,43 +1687,3 @@ console.log("Created by Deme Gábor © 2026");
 window.__deme_signature = "Created by Deme Gábor © 2026";
 
 render();
-createAutoBackup
-
-app.importJson = function () {
-  const input = document.getElementById("jsonImportInput");
-
-  if (!input || !input.files || !input.files[0]) {
-    alert("Válassz ki egy JSON fájlt!");
-    return;
-  }
-
-  const file = input.files[0];
-  const reader = new FileReader();
-
-  reader.onload = function (e) {
-    try {
-      const json = JSON.parse(e.target.result);
-
-      if (!json || !json.data) {
-        alert("Hibás JSON formátum!");
-        return;
-      }
-
-      state.openingCash = json.data.openingCash || 0;
-      state.apartments = json.data.apartments || [];
-      state.entries = json.data.entries || [];
-      state.reportSettings = json.data.reportSettings || state.reportSettings || {};
-      state.uiSettings = json.data.uiSettings || state.uiSettings || {};
-
-      saveState();
-      render();
-
-      alert("Sikeres import!");
-    } catch (err) {
-      console.error(err);
-      alert("Hiba történt a betöltés során!");
-    }
-  };
-
-  reader.readAsText(file);
-};
