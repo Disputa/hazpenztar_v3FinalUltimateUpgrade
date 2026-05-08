@@ -18,6 +18,21 @@
   - PDF-ek közvetlen nyomtatása,
   - export/nyomtatás előtt adatellenőrzés és mentési visszajelzés.
 
+## Elkészült fejlesztések
+
+- PDF munkaterület az alkalmazáson belül:
+  - havi PDF-ek listázása és előnézete,
+  - teljes adatbázis PDF generálása és előnézete,
+  - PDF megnyitása,
+  - PDF mappájának megnyitása,
+  - PDF nyomtatás indítása,
+  - e-mail ablak előkészítése PDF csatolmánnyal, ahol az operációs rendszer és a levelező támogatja.
+- Update build előkészítve:
+  - app identifier változatlan: `com.deme.hazpenztar`,
+  - productName változatlan: `hazpenztar`,
+  - localStorage kulcs változatlan: `ovoda6a_hazpenztar_state_v1`,
+  - verzió emelve: `0.1.1`.
+
 ## Blokkoló kérdések
 
 - Ez a megtalált mappa tekinthető-e elsődleges forrásnak?

@@ -16,6 +16,13 @@
 - Ellenőrzések lefuttatva: `npm test`, `node --check src/main.js`, `cargo check`, `npm run tauri build`.
 - Windows build elkészült verziózott kimenetként: `builds/full_audit_20260509/`.
 - Drive-szinkron megtörtént új almappába, törlés nélkül: `CodexSync/full_audit_20260509/` és `CodexSync/full_audit_20260509/source_changes/`.
+- PDF munkaterület implementálva: havi PDF-ek és teljes adatbázis PDF generálása, appon belüli PDF előnézet, megnyitás, mappa megnyitása, nyomtatás, e-mail előkészítés PDF csatolmánnyal.
+- Tauri backend bővítve PDF műveleti parancsokkal: `save_pdf_reports`, `read_pdf_base64`, `open_file`, `open_parent_folder`, `print_pdf`, `compose_email_with_pdf`.
+- Ellenőrzések lefuttatva a PDF funkció után: `node --check src/main.js`, `npm test`, `cargo fmt --check`, `cargo check`, `npm run tauri build`.
+- Update build előkészítve: verzió `0.1.1`, változatlan `com.deme.hazpenztar` identifier, változatlan `hazpenztar` productName és változatlan localStorage kulcs.
+- Update build jegyzet készült: `UPDATE_BUILD_NOTES.md`.
+- Update build elkészült: `hazpenztar_0.1.1_x64-setup.exe` és `hazpenztar_0.1.1_x64_en-US.msi`.
+- Drive-szinkron megtörtént új almappába, törlés nélkül: `CodexSync/update_0.1.1_20260509/`.
 
 ## 2026-05-06
 

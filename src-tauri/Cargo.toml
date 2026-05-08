@@ -1,6 +1,6 @@
 [package]
 name = "hazpenztar"
-version = "0.1.0"
+version = "0.1.1"
 description = "Társasház házpénztár alkalmazás"
 authors = ["Deme Gábor"]
 edition = "2021"
@@ -19,3 +19,4 @@ tauri-plugin-dialog = "2"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 printpdf = "0.7"
+base64 = "0.22"

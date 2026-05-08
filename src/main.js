@@ -49,6 +49,13 @@ let reportStatus = {
   kind: ""
 };
 
+let pdfWorkspace = {
+  reports: [],
+  selectedPath: "",
+  selectedTitle: "",
+  previewSrc: ""
+};
+
 let autoMonthlyCheckStarted = false;
 
 function defaultState() {
@@ -382,6 +389,14 @@ function escapeHtml(text) {
     .replaceAll("'", "&#039;");
 }
 
+function escapeJsString(text) {
+  return String(text ?? "")
+    .replaceAll("\\", "\\\\")
+    .replaceAll("'", "\\'")
+    .replaceAll("\n", "\\n")
+    .replaceAll("\r", "");
+}
+
 function setReportStatus(text, kind = "") {
   reportStatus = { text, kind };
   render();
@@ -501,6 +516,126 @@ function buildMonthlyReports(monthKey) {
   }
 
   return reports;
+}
+
+function buildDatabaseReportText() {
+  const lines = [];
+  const active = activeEntries();
+  const archived = archivedEntries();
+  const paymentCount = active.filter(entry => entry.type === "payment").length;
+  const expenseCount = active.filter(entry => entry.type === "expense").length;
+  const unassignedPayments = active.filter(entry => entry.type === "payment" && entry.apartmentId == null);
+
+  lines.push("TÁRSASHÁZ ÓVODA UTCA 6/A");
+  lines.push("TELJES ADATBÁZIS ÖSSZEFOGLALÓ");
+  lines.push("");
+  lines.push(`Generálva: ${nowStamp()}`);
+  lines.push("");
+  lines.push(`Nyitó készpénz: ${formatFt(state.openingCash)}`);
+  lines.push(`Aktív befizetések összesen: ${formatFt(totalPayments())}`);
+  lines.push(`Aktív kiadások összesen: ${formatFt(totalExpenses())}`);
+  lines.push(`Aktuális pénztár: ${formatFt(currentCash())}`);
+  lines.push(`Aktív tranzakciók: ${active.length}`);
+  lines.push(`Archivált tranzakciók: ${archived.length}`);
+  lines.push(`Aktív befizetések darabszáma: ${paymentCount}`);
+  lines.push(`Aktív kiadások darabszáma: ${expenseCount}`);
+  lines.push("");
+  lines.push("TÖRZSADATOK ÉS EGYENLEGEK");
+  lines.push("");
+
+  for (const apt of state.apartments) {
+    lines.push(
+      `${apt.id}. ${apt.name} | Havi közös költség: ${formatFt(apt.monthlyFee)} | Befizetve: ${formatFt(apartmentPaid(apt.id))} | Egyenleg: ${formatFt(apartmentBalance(apt.id))}`
+    );
+  }
+
+  lines.push("");
+  lines.push("ADATMINŐSÉGI JELZÉSEK");
+  lines.push("");
+  lines.push(`Kézi ellenőrzést igénylő, lakáshoz/garázshoz nem kötött befizetések: ${unassignedPayments.length}`);
+
+  if (unassignedPayments.length) {
+    for (const entry of unassignedPayments) {
+      lines.push(`${entry.createdAt} | ${formatFt(entry.amount)} | ${entry.note || "-"}`);
+    }
+  }
+
+  lines.push("");
+  lines.push("AKTÍV PÉNZTÁRNAPLÓ");
+  lines.push("");
+
+  for (const entry of sortedEntries().slice().reverse()) {
+    if (entry.type === "payment") {
+      lines.push(`${entry.createdAt} | BEFIZETÉS | ${entry.apartmentName} | ${entry.monthLabel || "-"} | ${entry.note || "-"} | +${formatFt(entry.amount)}`);
+    } else {
+      lines.push(`${entry.createdAt} | KIADÁS | ${entry.title} | ${entry.note || "-"} | -${formatFt(entry.amount)}`);
+    }
+  }
+
+  return lines.join("\n");
+}
+
+function buildDatabaseReport() {
+  const dateKey = new Date().toISOString().slice(0, 10);
+
+  return {
+    filename: `hazpenztar_teljes_adatbazis_${dateKey}.pdf`,
+    title: `Teljes adatbázis összefoglaló - ${dateKey}`,
+    content: buildDatabaseReportText()
+  };
+}
+
+function selectedPdfReport() {
+  return pdfWorkspace.reports.find(report => report.path === pdfWorkspace.selectedPath) || null;
+}
+
+function renderPdfWorkspace() {
+  const selected = selectedPdfReport();
+
+  if (!pdfWorkspace.reports.length) {
+    return `
+      <div class="span-2 hint-text">
+        Még nincs előkészített PDF ebben a munkamenetben.
+      </div>
+    `;
+  }
+
+  return `
+    <div class="span-2 pdf-workspace">
+      <div class="pdf-list">
+        ${pdfWorkspace.reports.map(report => `
+          <button
+            type="button"
+            class="pdf-list-item ${report.path === pdfWorkspace.selectedPath ? "active" : ""}"
+            onclick="app.selectPdf('${escapeJsString(report.path)}')"
+          >
+            <strong>${escapeHtml(report.title)}</strong>
+            <span>${escapeHtml(report.filename)}</span>
+          </button>
+        `).join("")}
+      </div>
+
+      <div class="pdf-panel">
+        <div class="pdf-panel-head">
+          <div>
+            <strong>${escapeHtml(selected?.title || "Nincs kiválasztott PDF")}</strong>
+            ${selected ? `<small>${escapeHtml(selected.path)}</small>` : ""}
+          </div>
+          <div class="pdf-actions">
+            <button class="secondary" type="button" onclick="app.openSelectedPdf()" ${selected ? "" : "disabled"}>Megnyitás</button>
+            <button class="secondary" type="button" onclick="app.openSelectedPdfFolder()" ${selected ? "" : "disabled"}>Mappa</button>
+            <button class="primary" type="button" onclick="app.printSelectedPdf()" ${selected ? "" : "disabled"}>Nyomtatás</button>
+            <button class="primary" type="button" onclick="app.emailSelectedPdf()" ${selected ? "" : "disabled"}>E-mail</button>
+          </div>
+        </div>
+
+        ${pdfWorkspace.previewSrc
+          ? `<iframe class="pdf-preview" title="PDF előnézet" src="${pdfWorkspace.previewSrc}"></iframe>`
+          : `<div class="pdf-empty">Válassz PDF-et az előnézethez.</div>`
+        }
+      </div>
+    </div>
+  `;
 }
 
 function renderEntryRows(entries, archivedMode = false) {
@@ -788,7 +923,9 @@ function render() {
 
               <div class="span-2 report-actions">
                 <button class="primary" type="button" onclick="app.chooseReportFolder()">Mappa kiválasztása</button>
-                <button class="primary" type="button" onclick="app.generateMonthlyReportsNow()">Havi report készítése most</button>
+                <button class="primary" type="button" onclick="app.generateMonthlyReportsNow()">Havi PDF-ek</button>
+                <button class="primary" type="button" onclick="app.generateDatabasePdfNow()">Teljes adatbázis PDF</button>
+                <button class="primary" type="button" onclick="app.generateAllPdfNow()">Minden PDF elkészítése</button>
                 <button class="primary" type="button" onclick="app.exportBackup()">Adatbázis export / backup</button>
 				<input type="file" id="jsonImportInput" accept=".json" style="display:none" onchange="app.importJson()" />
 				<button onclick="document.getElementById('jsonImportInput').click()">Adatbázis JSON import</button>
@@ -815,6 +952,8 @@ function render() {
                   ${escapeHtml(reportStatus.text)}
                 </div>
               ` : ""}
+
+              ${renderPdfWorkspace()}
             </div>
           </div>
         </section>
@@ -1005,6 +1144,110 @@ function render() {
       display:flex;
       gap:10px;
       flex-wrap:wrap;
+    }
+
+    .pdf-workspace {
+      display:grid;
+      grid-template-columns: minmax(220px, 320px) 1fr;
+      gap:14px;
+      min-height:520px;
+    }
+
+    .pdf-list {
+      border:1px solid #e2e8f0;
+      border-radius:8px;
+      overflow:auto;
+      max-height:520px;
+      background:#f8fafc;
+    }
+
+    .pdf-list-item {
+      display:block;
+      width:100%;
+      border:0;
+      border-bottom:1px solid #e2e8f0;
+      border-radius:0;
+      box-shadow:none;
+      background:transparent;
+      padding:11px 12px;
+      text-align:left;
+      cursor:pointer;
+    }
+
+    .pdf-list-item strong,
+    .pdf-list-item span {
+      display:block;
+      overflow:hidden;
+      text-overflow:ellipsis;
+      white-space:nowrap;
+    }
+
+    .pdf-list-item span {
+      margin-top:4px;
+      color:#64748b;
+      font-size:12px;
+      font-weight:400;
+    }
+
+    .pdf-list-item.active {
+      background:#fff7ed;
+      border-left:4px solid #f59e0b;
+    }
+
+    .pdf-panel {
+      border:1px solid #e2e8f0;
+      border-radius:8px;
+      overflow:hidden;
+      background:white;
+      min-width:0;
+    }
+
+    .pdf-panel-head {
+      display:flex;
+      justify-content:space-between;
+      align-items:flex-start;
+      gap:12px;
+      padding:12px;
+      border-bottom:1px solid #e2e8f0;
+      background:#f8fafc;
+    }
+
+    .pdf-panel-head small {
+      display:block;
+      max-width:560px;
+      margin-top:4px;
+      color:#64748b;
+      overflow:hidden;
+      text-overflow:ellipsis;
+      white-space:nowrap;
+    }
+
+    .pdf-actions {
+      display:flex;
+      gap:8px;
+      flex-wrap:wrap;
+      justify-content:flex-end;
+    }
+
+    .pdf-actions button:disabled {
+      opacity:0.45;
+      cursor:not-allowed;
+    }
+
+    .pdf-preview {
+      width:100%;
+      height:458px;
+      border:0;
+      background:#eef2f7;
+    }
+
+    .pdf-empty {
+      display:flex;
+      align-items:center;
+      justify-content:center;
+      height:458px;
+      color:#64748b;
+      background:#f8fafc;
     }
 
     .checkbox-row {
@@ -1263,6 +1506,14 @@ function render() {
         grid-column: span 1;
       }
 
+      .pdf-workspace {
+        grid-template-columns: 1fr;
+      }
+
+      .pdf-panel-head {
+        flex-direction:column;
+      }
+
       .footer {
         position: static;
         padding: 0 24px 16px;
@@ -1456,30 +1707,177 @@ const app = {
 
     const reports = buildMonthlyReports(monthKey);
 
-    const savedFolder = await core.invoke("save_monthly_reports", {
+    const savedReports = await core.invoke("save_pdf_reports", {
       targetFolder: state.reportSettings.targetFolder,
-      monthKey,
+      folderName: `${monthKey}_havi_report`,
       reports
     });
 
     state.reportSettings.lastGeneratedMonth = monthKey;
     saveState();
+    await this.registerPdfReports(savedReports);
 
     if (!automaticMode) {
-      setReportStatus(`A havi reportok elkészültek ide: ${savedFolder}`, "success");
+      setReportStatus(`A havi PDF-ek elkészültek: ${savedReports.length} fájl.`, "success");
     }
 
-    return savedFolder;
+    return savedReports;
   },
 
   async generateMonthlyReportsNow() {
     clearReportStatus();
+    setActiveSection("settingsSection");
 
     try {
       const monthKey = monthKeyFromDate(new Date());
       await this.generateMonthlyReports(monthKey, false);
     } catch (error) {
       setReportStatus(`Report generálási hiba: ${error.message || error}`, "error");
+    }
+  },
+
+  async generateDatabasePdfNow() {
+    clearReportStatus();
+    setActiveSection("settingsSection");
+
+    try {
+      if (!state.reportSettings.targetFolder) {
+        throw new Error("Előbb válassz ki egy célmappát a PDF-ekhez.");
+      }
+
+      const core = window.__TAURI__?.core;
+      if (!core || typeof core.invoke !== "function") {
+        throw new Error("A Tauri invoke API nem érhető el.");
+      }
+
+      const dateKey = new Date().toISOString().slice(0, 10);
+      const savedReports = await core.invoke("save_pdf_reports", {
+        targetFolder: state.reportSettings.targetFolder,
+        folderName: `${dateKey}_teljes_adatbazis`,
+        reports: [buildDatabaseReport()]
+      });
+
+      await this.registerPdfReports(savedReports);
+      setReportStatus("A teljes adatbázis PDF elkészült.", "success");
+    } catch (error) {
+      setReportStatus(`Teljes adatbázis PDF hiba: ${error.message || error}`, "error");
+    }
+  },
+
+  async generateAllPdfNow() {
+    clearReportStatus();
+    setActiveSection("settingsSection");
+
+    try {
+      const monthKey = monthKeyFromDate(new Date());
+      const monthlyReports = await this.generateMonthlyReports(monthKey, true);
+
+      const core = window.__TAURI__?.core;
+      const dateKey = new Date().toISOString().slice(0, 10);
+      const databaseReports = await core.invoke("save_pdf_reports", {
+        targetFolder: state.reportSettings.targetFolder,
+        folderName: `${dateKey}_teljes_adatbazis`,
+        reports: [buildDatabaseReport()]
+      });
+
+      await this.registerPdfReports(databaseReports);
+      setReportStatus(`Minden PDF elkészült: ${monthlyReports.length + databaseReports.length} fájl.`, "success");
+    } catch (error) {
+      setReportStatus(`PDF generálási hiba: ${error.message || error}`, "error");
+    }
+  },
+
+  async registerPdfReports(savedReports) {
+    const incoming = Array.isArray(savedReports) ? savedReports : [];
+    const byPath = new Map(pdfWorkspace.reports.map(report => [report.path, report]));
+
+    for (const report of incoming) {
+      if (report?.path) {
+        byPath.set(report.path, report);
+      }
+    }
+
+    pdfWorkspace.reports = [...byPath.values()];
+
+    if (incoming[0]?.path) {
+      await this.selectPdf(incoming[0].path, false);
+    } else {
+      render();
+    }
+  },
+
+  async selectPdf(path, rerenderBeforeLoad = true) {
+    const report = pdfWorkspace.reports.find(item => item.path === path);
+    if (!report) return;
+
+    pdfWorkspace.selectedPath = report.path;
+    pdfWorkspace.selectedTitle = report.title;
+    pdfWorkspace.previewSrc = "";
+
+    if (rerenderBeforeLoad) render();
+
+    try {
+      const core = window.__TAURI__?.core;
+      if (!core || typeof core.invoke !== "function") {
+        throw new Error("A Tauri invoke API nem érhető el.");
+      }
+
+      const base64 = await core.invoke("read_pdf_base64", { path: report.path });
+      pdfWorkspace.previewSrc = `data:application/pdf;base64,${base64}`;
+      render();
+    } catch (error) {
+      setReportStatus(`PDF előnézeti hiba: ${error.message || error}`, "error");
+    }
+  },
+
+  async openSelectedPdf() {
+    await this.invokeForSelectedPdf("open_file", "PDF megnyitva.");
+  },
+
+  async openSelectedPdfFolder() {
+    await this.invokeForSelectedPdf("open_parent_folder", "PDF mappa megnyitva.");
+  },
+
+  async printSelectedPdf() {
+    await this.invokeForSelectedPdf("print_pdf", "Nyomtatás elindítva.");
+  },
+
+  async emailSelectedPdf() {
+    const selected = selectedPdfReport();
+    if (!selected) return;
+
+    try {
+      const core = window.__TAURI__?.core;
+      if (!core || typeof core.invoke !== "function") {
+        throw new Error("A Tauri invoke API nem érhető el.");
+      }
+
+      const message = await core.invoke("compose_email_with_pdf", {
+        path: selected.path,
+        subject: selected.title,
+        body: `Csatolva küldöm a PDF-et: ${selected.filename}`
+      });
+
+      setReportStatus(message, "success");
+    } catch (error) {
+      setReportStatus(`E-mail előkészítési hiba: ${error.message || error}`, "error");
+    }
+  },
+
+  async invokeForSelectedPdf(command, successMessage) {
+    const selected = selectedPdfReport();
+    if (!selected) return;
+
+    try {
+      const core = window.__TAURI__?.core;
+      if (!core || typeof core.invoke !== "function") {
+        throw new Error("A Tauri invoke API nem érhető el.");
+      }
+
+      await core.invoke(command, { path: selected.path });
+      setReportStatus(successMessage, "success");
+    } catch (error) {
+      setReportStatus(`PDF műveleti hiba: ${error.message || error}`, "error");
     }
   },
 
