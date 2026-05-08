@@ -8,6 +8,7 @@
 - Riport készült: `reports/garage_restore_20260509/GARAZS_VISSZAALLITAS_RIPORT.md`.
 - Drive-szinkron megtörtént új almappába, törlés és felülírás nélkül: `MacBackupForUpdate/garage_restore_20260509/`.
 - GitHub-szinkron előkészítve a `Disputa/hazpenztar_v3FinalUltimateUpgrade` repóba külön `codex/garage-restore-backup` ágon.
+- Új későbbi fejlesztési feladat felvéve: havi riportok és teljes adatbázis-mentés programon belüli PDF előnézete, e-mail küldése és nyomtatása.
 
 ## 2026-05-06
 
