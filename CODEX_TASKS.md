@@ -43,6 +43,10 @@
   - Garázs 1: Janauschek Ernő,
   - Garázs 2: Vörös Miklós.
 - Saját alkalmazásikon beépítve a Tauri alapikon helyett.
+- Desktop shortcut ikonhibája javítva:
+  - MSI WiX forrás build után ellenőrzött patch-et kap,
+  - az asztali parancsikon explicit `ProductIcon` hivatkozást használ,
+  - javító verzió: `0.1.4`.
 
 ## Blokkoló kérdések
 

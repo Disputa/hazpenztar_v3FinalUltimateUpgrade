@@ -1,6 +1,6 @@
 [package]
 name = "hazpenztar"
-version = "0.1.3"
+version = "0.1.4"
 description = "Társasház házpénztár alkalmazás"
 authors = ["Deme Gábor"]
 edition = "2021"

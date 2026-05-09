@@ -28,6 +28,8 @@
 - Windows update build javítva: NSIS `.exe` helyett MSI-only csomag készül, stabil WiX upgrade azonosítóval.
 - Tauri alapikon lecserélve saját házpénztár ikonra; az ikonforrás: `assets/hazpenztar-icon.svg`.
 - Verzió emelve `0.1.3`-ra a tulajdonosnevek, a látható PDF menü és a valódi MSI update build miatt.
+- Desktop shortcut ikonhiba javítva: az asztali parancsikon explicit `ProductIcon` hivatkozást kap.
+- Verzió emelve `0.1.4`-re, hogy a Windows biztosan új update-ként telepítse az ikonjavítást.
 
 ## 2026-05-06
 
