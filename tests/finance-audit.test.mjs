@@ -7,10 +7,10 @@ const data = backup.data;
 
 const defaultApartments = [
   { id: 1, name: "Békéssy Klára", monthlyFee: 12000 },
-  { id: 2, name: "Pócz János", monthlyFee: 12000 },
-  { id: 3, name: "Fazekas Sándor", monthlyFee: 12000 },
-  { id: 4, name: "Komoróczki Gábor", monthlyFee: 12000 },
-  { id: 5, name: "Lits László", monthlyFee: 12000 },
+  { id: 2, name: "Pócz János", monthlyFee: 9200 },
+  { id: 3, name: "Fazekas Sándor", monthlyFee: 7800 },
+  { id: 4, name: "Komoróczki Gábor", monthlyFee: 6900 },
+  { id: 5, name: "Lits László", monthlyFee: 4900 },
   { id: 6, name: "Janauschek Ernő", monthlyFee: 12000 },
   { id: 7, name: "Vörös Miklós", monthlyFee: 12000 }
 ];
@@ -57,7 +57,18 @@ function resolveApartmentName(id, value) {
   return !trimmed || trimmed === genericName ? defaultApartmentName(id) : trimmed;
 }
 
-function normalizeApartments(apartments, entries = []) {
+function defaultApartmentFee(id) {
+  return normalizeMoney(defaultApartments.find(apartment => apartment.id === Number(id))?.monthlyFee);
+}
+
+function resolveApartmentFee(id, value, applySquareMeterFeeMigration = false) {
+  const normalizedFee = normalizeMoney(value);
+  return applySquareMeterFeeMigration && Number(id) >= 2 && Number(id) <= 5 && normalizedFee === 12000
+    ? defaultApartmentFee(id)
+    : normalizedFee;
+}
+
+function normalizeApartments(apartments, entries = [], applySquareMeterFeeMigration = false) {
   const byId = new Map(defaultApartments.map(apartment => [apartment.id, { ...apartment }]));
 
   if (Array.isArray(apartments)) {
@@ -68,7 +79,7 @@ function normalizeApartments(apartments, entries = []) {
       byId.set(id, {
         id,
         name: resolveApartmentName(id, apartment?.name),
-        monthlyFee: normalizeMoney(apartment?.monthlyFee)
+        monthlyFee: resolveApartmentFee(id, apartment?.monthlyFee, applySquareMeterFeeMigration)
       });
     }
   }
@@ -119,11 +130,14 @@ function normalizeEntries(entries, apartments) {
 }
 
 function normalizeState(input) {
-  const apartments = normalizeApartments(input.apartments, input.entries);
+  const apartments = normalizeApartments(input.apartments, input.entries, input?.feeSettings?.squareMeterFeeMigrationApplied !== true);
   return {
     openingCash: normalizeMoney(input.openingCash),
     apartments,
-    entries: normalizeEntries(input.entries, apartments)
+    entries: normalizeEntries(input.entries, apartments),
+    feeSettings: {
+      squareMeterFeeMigrationApplied: true
+    }
   };
 }
 
@@ -135,6 +149,10 @@ assert.equal(normalized.apartments.length, 7, "A törzslistában 5 lakásnak és
 assert.deepEqual(
   normalized.apartments.map(apartment => apartment.name),
   ["Békéssy Klára", "Pócz János", "Fazekas Sándor", "Komoróczki Gábor", "Lits László", "Janauschek Ernő", "Vörös Miklós"]
+);
+assert.deepEqual(
+  normalized.apartments.map(apartment => apartment.monthlyFee),
+  [12000, 9200, 7800, 6900, 4900, 12000, 12000]
 );
 assert.equal(normalized.entries.length, 544, "A javított mentésből nem veszhet el tranzakció.");
 assert.equal(new Set(entryIds).size, entryIds.length, "Nem lehet duplikált tranzakció ID.");

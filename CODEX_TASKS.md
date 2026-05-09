@@ -35,13 +35,17 @@
   - verzió emelve: `0.1.3`,
   - Windows update build MSI-only, stabil WiX upgrade azonosítóval.
 - Tulajdonosnevek visszaállítása:
-  - Lakás 1: Békéssy Klára,
-  - Lakás 2: Pócz János,
-  - Lakás 3: Fazekas Sándor,
-  - Lakás 4: Komoróczki Gábor,
-  - Lakás 5: Lits László,
-  - Garázs 1: Janauschek Ernő,
-  - Garázs 2: Vörös Miklós.
+  - Lakás 1: Békéssy Klára, 12 000 Ft,
+  - Lakás 2: Pócz János, 9 200 Ft,
+  - Lakás 3: Fazekas Sándor, 7 800 Ft,
+  - Lakás 4: Komoróczki Gábor, 6 900 Ft,
+  - Lakás 5: Lits László, 4 900 Ft,
+  - Garázs 1: Janauschek Ernő, 12 000 Ft,
+  - Garázs 2: Vörös Miklós, 12 000 Ft.
+- Négyzetméterarányos közösköltség migráció:
+  - a 12 000 Ft-ra átlagolt Lakás 2-5 díjakat egyszer visszaállítja,
+  - a friss tranzakcióállományt megtartja,
+  - javító verzió: `0.1.5`.
 - Saját alkalmazásikon beépítve a Tauri alapikon helyett.
 - Desktop shortcut ikonhibája javítva:
   - MSI WiX forrás build után ellenőrzött patch-et kap,

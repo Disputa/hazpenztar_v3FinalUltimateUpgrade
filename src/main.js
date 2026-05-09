@@ -5,10 +5,10 @@ const ACTIVE_SECTION_KEY = "ovoda6a_hazpenztar_active_section_v1";
 
 const DEFAULT_APARTMENTS = [
   { id: 1, name: "Békéssy Klára", monthlyFee: 12000 },
-  { id: 2, name: "Pócz János", monthlyFee: 12000 },
-  { id: 3, name: "Fazekas Sándor", monthlyFee: 12000 },
-  { id: 4, name: "Komoróczki Gábor", monthlyFee: 12000 },
-  { id: 5, name: "Lits László", monthlyFee: 12000 },
+  { id: 2, name: "Pócz János", monthlyFee: 9200 },
+  { id: 3, name: "Fazekas Sándor", monthlyFee: 7800 },
+  { id: 4, name: "Komoróczki Gábor", monthlyFee: 6900 },
+  { id: 5, name: "Lits László", monthlyFee: 4900 },
   { id: 6, name: "Janauschek Ernő", monthlyFee: 12000 },
   { id: 7, name: "Vörös Miklós", monthlyFee: 12000 }
 ];
@@ -73,6 +73,9 @@ function defaultState() {
     openingCash: 0,
     apartments: DEFAULT_APARTMENTS.map(apartment => ({ ...apartment })),
     entries: [],
+    feeSettings: {
+      squareMeterFeeMigrationApplied: true
+    },
     reportSettings: {
       targetFolder: "",
       autoMonthlyEnabled: true,
@@ -126,7 +129,21 @@ function resolveApartmentName(id, value) {
   return trimmed;
 }
 
-function normalizeApartments(apartments, entries = []) {
+function defaultApartmentFee(id) {
+  return normalizeMoney(DEFAULT_APARTMENTS.find(apartment => Number(apartment.id) === Number(id))?.monthlyFee);
+}
+
+function resolveApartmentFee(id, value, applySquareMeterFeeMigration = false) {
+  const normalizedFee = normalizeMoney(value);
+
+  if (applySquareMeterFeeMigration && Number(id) >= 2 && Number(id) <= 5 && normalizedFee === 12000) {
+    return defaultApartmentFee(id);
+  }
+
+  return normalizedFee;
+}
+
+function normalizeApartments(apartments, entries = [], applySquareMeterFeeMigration = false) {
   const byId = new Map();
 
   for (const apartment of DEFAULT_APARTMENTS) {
@@ -141,7 +158,7 @@ function normalizeApartments(apartments, entries = []) {
       byId.set(id, {
         id,
         name: resolveApartmentName(id, apartment?.name),
-        monthlyFee: normalizeMoney(apartment?.monthlyFee)
+        monthlyFee: resolveApartmentFee(id, apartment?.monthlyFee, applySquareMeterFeeMigration)
       });
     }
   }
@@ -198,13 +215,17 @@ function normalizeEntries(entries, apartments) {
 function normalizeState(input = {}) {
   const fallback = defaultState();
   const rawEntries = Array.isArray(input.entries) ? input.entries : [];
-  const apartments = normalizeApartments(input.apartments, rawEntries);
+  const applySquareMeterFeeMigration = input?.feeSettings?.squareMeterFeeMigrationApplied !== true;
+  const apartments = normalizeApartments(input.apartments, rawEntries, applySquareMeterFeeMigration);
   const entries = normalizeEntries(rawEntries, apartments);
 
   return {
     openingCash: normalizeMoney(input.openingCash),
     apartments,
     entries,
+    feeSettings: {
+      squareMeterFeeMigrationApplied: true
+    },
     reportSettings: {
       targetFolder: String(input?.reportSettings?.targetFolder || ""),
       autoMonthlyEnabled: typeof input?.reportSettings?.autoMonthlyEnabled === "boolean"

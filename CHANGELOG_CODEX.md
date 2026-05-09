@@ -30,6 +30,9 @@
 - Verzió emelve `0.1.3`-ra a tulajdonosnevek, a látható PDF menü és a valódi MSI update build miatt.
 - Desktop shortcut ikonhiba javítva: az asztali parancsikon explicit `ProductIcon` hivatkozást kap.
 - Verzió emelve `0.1.4`-re, hogy a Windows biztosan új update-ként telepítse az ikonjavítást.
+- Négyzetméterarányos közösköltség díjtábla visszaállítva a 2026-03-22-es adatbázis alapján: Lakás 1 `12000`, Lakás 2 `9200`, Lakás 3 `7800`, Lakás 4 `6900`, Lakás 5 `4900`, Garázs 1-2 `12000`.
+- Állapotmigráció hozzáadva: a korábban 12 000 Ft-ra átlagolt Lakás 2-5 díjakat egyszeri migrációval visszaállítja, miközben a későbbi kézi módosításokat már nem írja felül.
+- Verzió emelve `0.1.5`-re az új adatokkal készülő buildhez.
 
 ## 2026-05-06
 
