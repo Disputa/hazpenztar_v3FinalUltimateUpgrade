@@ -3,6 +3,26 @@
 const STORAGE_KEY = "ovoda6a_hazpenztar_state_v1";
 const ACTIVE_SECTION_KEY = "ovoda6a_hazpenztar_active_section_v1";
 
+const DEFAULT_APARTMENTS = [
+  { id: 1, name: "Békéssy Klára", monthlyFee: 12000 },
+  { id: 2, name: "Pócz János", monthlyFee: 9200 },
+  { id: 3, name: "Fazekas Sándor", monthlyFee: 7800 },
+  { id: 4, name: "Komoróczki Gábor", monthlyFee: 6900 },
+  { id: 5, name: "Lits László", monthlyFee: 4900 },
+  { id: 6, name: "Janauschek Ernő", monthlyFee: 12000 },
+  { id: 7, name: "Vörös Miklós", monthlyFee: 12000 }
+];
+
+const GENERIC_APARTMENT_NAMES = new Map([
+  [1, "Lakás 1"],
+  [2, "Lakás 2"],
+  [3, "Lakás 3"],
+  [4, "Lakás 4"],
+  [5, "Lakás 5"],
+  [6, "Garázs 1"],
+  [7, "Garázs 2"]
+]);
+
 function createAutoBackup(reason = "manual") {
   try {
     const state = JSON.parse(localStorage.getItem(STORAGE_KEY) || "{}");
@@ -39,19 +59,23 @@ let reportStatus = {
   kind: ""
 };
 
+let pdfWorkspace = {
+  reports: [],
+  selectedPath: "",
+  selectedTitle: "",
+  previewSrc: ""
+};
+
 let autoMonthlyCheckStarted = false;
 
 function defaultState() {
   return {
     openingCash: 0,
-    apartments: [
-      { id: 1, name: "Lakás 1", monthlyFee: 12000 },
-      { id: 2, name: "Lakás 2", monthlyFee: 12000 },
-      { id: 3, name: "Lakás 3", monthlyFee: 12000 },
-      { id: 4, name: "Lakás 4", monthlyFee: 12000 },
-      { id: 5, name: "Lakás 5", monthlyFee: 12000 }
-    ],
+    apartments: DEFAULT_APARTMENTS.map(apartment => ({ ...apartment })),
     entries: [],
+    feeSettings: {
+      squareMeterFeeMigrationApplied: true
+    },
     reportSettings: {
       targetFolder: "",
       autoMonthlyEnabled: true,
@@ -63,38 +87,167 @@ function defaultState() {
   };
 }
 
+function parseMoney(value) {
+  if (typeof value === "number") {
+    return Number.isFinite(value) ? value : 0;
+  }
+
+  const normalized = String(value ?? "")
+    .trim()
+    .replace(/\s/g, "")
+    .replace(",", ".");
+
+  if (!normalized) return 0;
+
+  const parsed = Number(normalized);
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
+function normalizeMoney(value) {
+  const amount = parseMoney(value);
+  const roundedInteger = Math.round(amount);
+  return Math.abs(amount - roundedInteger) < 0.0000001 ? roundedInteger : amount;
+}
+
+function positiveMoneyFromInput(value) {
+  const amount = normalizeMoney(value);
+  return amount > 0 ? amount : 0;
+}
+
+function defaultApartmentName(id) {
+  return DEFAULT_APARTMENTS.find(apartment => Number(apartment.id) === Number(id))?.name || `Lakás ${id}`;
+}
+
+function resolveApartmentName(id, value) {
+  const trimmed = String(value || "").trim();
+  const genericName = GENERIC_APARTMENT_NAMES.get(Number(id));
+
+  if (!trimmed || trimmed === genericName) {
+    return defaultApartmentName(id);
+  }
+
+  return trimmed;
+}
+
+function defaultApartmentFee(id) {
+  return normalizeMoney(DEFAULT_APARTMENTS.find(apartment => Number(apartment.id) === Number(id))?.monthlyFee);
+}
+
+function resolveApartmentFee(id, value, applySquareMeterFeeMigration = false) {
+  const normalizedFee = normalizeMoney(value);
+
+  if (applySquareMeterFeeMigration && Number(id) >= 2 && Number(id) <= 5 && normalizedFee === 12000) {
+    return defaultApartmentFee(id);
+  }
+
+  return normalizedFee;
+}
+
+function normalizeApartments(apartments, entries = [], applySquareMeterFeeMigration = false) {
+  const byId = new Map();
+
+  for (const apartment of DEFAULT_APARTMENTS) {
+    byId.set(Number(apartment.id), { ...apartment });
+  }
+
+  if (Array.isArray(apartments)) {
+    for (const apartment of apartments) {
+      const id = Number(apartment?.id);
+      if (!Number.isFinite(id) || id <= 0) continue;
+
+      byId.set(id, {
+        id,
+        name: resolveApartmentName(id, apartment?.name),
+        monthlyFee: resolveApartmentFee(id, apartment?.monthlyFee, applySquareMeterFeeMigration)
+      });
+    }
+  }
+
+  if (Array.isArray(entries)) {
+    for (const entry of entries) {
+      if (entry?.type !== "payment") continue;
+
+      const id = Number(entry.apartmentId);
+      if (!Number.isFinite(id) || id <= 0 || byId.has(id)) continue;
+
+      byId.set(id, {
+        id,
+        name: resolveApartmentName(id, entry.apartmentName),
+        monthlyFee: 0
+      });
+    }
+  }
+
+  return [...byId.values()].sort((a, b) => Number(a.id) - Number(b.id));
+}
+
+function normalizeEntries(entries, apartments) {
+  const apartmentById = new Map(apartments.map(apartment => [Number(apartment.id), apartment]));
+
+  if (!Array.isArray(entries)) return [];
+
+  return entries
+    .filter(entry => entry && (entry.type === "payment" || entry.type === "expense"))
+    .map(entry => {
+      const normalized = {
+        ...entry,
+        amount: normalizeMoney(entry.amount),
+        archived: Boolean(entry.archived)
+      };
+
+      if (normalized.type === "payment") {
+        const apartmentId = Number(normalized.apartmentId);
+        if (Number.isFinite(apartmentId) && apartmentId > 0) {
+          const apartment = apartmentById.get(apartmentId);
+          normalized.apartmentId = apartmentId;
+          normalized.apartmentName = apartment?.name || String(normalized.apartmentName || `Lakás ${apartmentId}`);
+        } else {
+          normalized.apartmentId = null;
+          normalized.apartmentName = String(normalized.apartmentName || "Kézi ellenőrzés szükséges");
+        }
+      }
+
+      return normalized;
+    })
+    .filter(entry => entry.amount > 0);
+}
+
+function normalizeState(input = {}) {
+  const fallback = defaultState();
+  const rawEntries = Array.isArray(input.entries) ? input.entries : [];
+  const applySquareMeterFeeMigration = input?.feeSettings?.squareMeterFeeMigrationApplied !== true;
+  const apartments = normalizeApartments(input.apartments, rawEntries, applySquareMeterFeeMigration);
+  const entries = normalizeEntries(rawEntries, apartments);
+
+  return {
+    openingCash: normalizeMoney(input.openingCash),
+    apartments,
+    entries,
+    feeSettings: {
+      squareMeterFeeMigrationApplied: true
+    },
+    reportSettings: {
+      targetFolder: String(input?.reportSettings?.targetFolder || ""),
+      autoMonthlyEnabled: typeof input?.reportSettings?.autoMonthlyEnabled === "boolean"
+        ? input.reportSettings.autoMonthlyEnabled
+        : fallback.reportSettings.autoMonthlyEnabled,
+      lastGeneratedMonth: String(input?.reportSettings?.lastGeneratedMonth || "")
+    },
+    uiSettings: {
+      showArchivedEntries: typeof input?.uiSettings?.showArchivedEntries === "boolean"
+        ? input.uiSettings.showArchivedEntries
+        : fallback.uiSettings.showArchivedEntries
+    }
+  };
+}
+
 function loadState() {
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
     if (!raw) return defaultState();
 
     const parsed = JSON.parse(raw);
-    const fallback = defaultState();
-
-    return {
-      openingCash: Number(parsed.openingCash || 0),
-      apartments: Array.isArray(parsed.apartments) && parsed.apartments.length === 5
-        ? parsed.apartments
-        : fallback.apartments,
-      entries: Array.isArray(parsed.entries)
-        ? parsed.entries.map(entry => ({
-            ...entry,
-            archived: Boolean(entry.archived)
-          }))
-        : [],
-      reportSettings: {
-        targetFolder: String(parsed?.reportSettings?.targetFolder || ""),
-        autoMonthlyEnabled: typeof parsed?.reportSettings?.autoMonthlyEnabled === "boolean"
-          ? parsed.reportSettings.autoMonthlyEnabled
-          : true,
-        lastGeneratedMonth: String(parsed?.reportSettings?.lastGeneratedMonth || "")
-      },
-      uiSettings: {
-        showArchivedEntries: typeof parsed?.uiSettings?.showArchivedEntries === "boolean"
-          ? parsed.uiSettings.showArchivedEntries
-          : false
-      }
-    };
+    return normalizeState(parsed);
   } catch {
     return defaultState();
   }
@@ -103,6 +256,7 @@ function loadState() {
 let state = loadState();
 
 function saveState() {
+  state = normalizeState(state);
   localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
 }
 
@@ -115,7 +269,9 @@ function setActiveSection(sectionId) {
 }
 
 function formatFt(value) {
-  return new Intl.NumberFormat("hu-HU").format(Number(value || 0)) + " Ft";
+  return new Intl.NumberFormat("hu-HU", {
+    maximumFractionDigits: 2
+  }).format(normalizeMoney(value)) + " Ft";
 }
 
 function pad2(value) {
@@ -187,29 +343,29 @@ function archivedEntries() {
 function totalPayments() {
   return activeEntries()
     .filter(e => e.type === "payment")
-    .reduce((sum, e) => sum + Number(e.amount), 0);
+    .reduce((sum, e) => normalizeMoney(sum + normalizeMoney(e.amount)), 0);
 }
 
 function totalExpenses() {
   return activeEntries()
     .filter(e => e.type === "expense")
-    .reduce((sum, e) => sum + Number(e.amount), 0);
+    .reduce((sum, e) => normalizeMoney(sum + normalizeMoney(e.amount)), 0);
 }
 
 function currentCash() {
-  return Number(state.openingCash) + totalPayments() - totalExpenses();
+  return normalizeMoney(state.openingCash) + totalPayments() - totalExpenses();
 }
 
 function apartmentPaid(apartmentId) {
   return activeEntries()
     .filter(e => e.type === "payment" && Number(e.apartmentId) === Number(apartmentId))
-    .reduce((sum, e) => sum + Number(e.amount), 0);
+    .reduce((sum, e) => normalizeMoney(sum + normalizeMoney(e.amount)), 0);
 }
 
 function apartmentBalance(apartmentId) {
   const apt = state.apartments.find(a => Number(a.id) === Number(apartmentId));
   if (!apt) return 0;
-  return apartmentPaid(apartmentId) - Number(apt.monthlyFee || 0);
+  return normalizeMoney(apartmentPaid(apartmentId) - normalizeMoney(apt.monthlyFee));
 }
 
 function sortedEntries() {
@@ -227,13 +383,13 @@ function entriesForMonth(monthKey) {
 function paymentsForMonth(monthKey) {
   return entriesForMonth(monthKey)
     .filter(entry => entry.type === "payment")
-    .reduce((sum, entry) => sum + Number(entry.amount), 0);
+    .reduce((sum, entry) => normalizeMoney(sum + normalizeMoney(entry.amount)), 0);
 }
 
 function expensesForMonth(monthKey) {
   return entriesForMonth(monthKey)
     .filter(entry => entry.type === "expense")
-    .reduce((sum, entry) => sum + Number(entry.amount), 0);
+    .reduce((sum, entry) => normalizeMoney(sum + normalizeMoney(entry.amount)), 0);
 }
 
 function apartmentPaidForMonth(apartmentId, monthKey) {
@@ -243,22 +399,22 @@ function apartmentPaidForMonth(apartmentId, monthKey) {
       Number(entry.apartmentId) === Number(apartmentId) &&
       entryMonthKey(entry) === monthKey
     )
-    .reduce((sum, entry) => sum + Number(entry.amount), 0);
+    .reduce((sum, entry) => normalizeMoney(sum + normalizeMoney(entry.amount)), 0);
 }
 
 function cashBeforeMonth(monthKey) {
   const [year, month] = monthKey.split("-").map(Number);
   const monthStart = new Date(year, month - 1, 1, 0, 0, 0, 0);
 
-  let balance = Number(state.openingCash);
+  let balance = normalizeMoney(state.openingCash);
 
   for (const entry of activeEntries()) {
     const date = entryDate(entry);
     if (date < monthStart) {
       if (entry.type === "payment") {
-        balance += Number(entry.amount);
+        balance = normalizeMoney(balance + normalizeMoney(entry.amount));
       } else if (entry.type === "expense") {
-        balance -= Number(entry.amount);
+        balance = normalizeMoney(balance - normalizeMoney(entry.amount));
       }
     }
   }
@@ -267,7 +423,7 @@ function cashBeforeMonth(monthKey) {
 }
 
 function cashAfterMonth(monthKey) {
-  return cashBeforeMonth(monthKey) + paymentsForMonth(monthKey) - expensesForMonth(monthKey);
+  return normalizeMoney(cashBeforeMonth(monthKey) + paymentsForMonth(monthKey) - expensesForMonth(monthKey));
 }
 
 function escapeHtml(text) {
@@ -277,6 +433,14 @@ function escapeHtml(text) {
     .replaceAll(">", "&gt;")
     .replaceAll('"', "&quot;")
     .replaceAll("'", "&#039;");
+}
+
+function escapeJsString(text) {
+  return String(text ?? "")
+    .replaceAll("\\", "\\\\")
+    .replaceAll("'", "\\'")
+    .replaceAll("\n", "\\n")
+    .replaceAll("\r", "");
 }
 
 function setReportStatus(text, kind = "") {
@@ -309,7 +473,7 @@ function buildSummaryReportText(monthKey) {
 
   for (const apt of state.apartments) {
     const paid = apartmentPaidForMonth(apt.id, monthKey);
-    const monthlyBalance = paid - Number(apt.monthlyFee || 0);
+    const monthlyBalance = normalizeMoney(paid - normalizeMoney(apt.monthlyFee));
 
     lines.push(
       `${apt.id}. ${apt.name} | Havi közös költség: ${formatFt(apt.monthlyFee)} | Befizetve: ${formatFt(paid)} | Havi egyenleg: ${formatFt(monthlyBalance)}`
@@ -347,8 +511,8 @@ function buildApartmentReportText(apartment, monthKey) {
   );
 
   const paid = apartmentPaidForMonth(apartment.id, monthKey);
-  const monthlyFee = Number(apartment.monthlyFee || 0);
-  const monthlyBalance = paid - monthlyFee;
+  const monthlyFee = normalizeMoney(apartment.monthlyFee);
+  const monthlyBalance = normalizeMoney(paid - monthlyFee);
 
   const lines = [];
   lines.push("TÁRSASHÁZ ÓVODA UTCA 6/A");
@@ -398,6 +562,177 @@ function buildMonthlyReports(monthKey) {
   }
 
   return reports;
+}
+
+function buildDatabaseReportText() {
+  const lines = [];
+  const active = activeEntries();
+  const archived = archivedEntries();
+  const paymentCount = active.filter(entry => entry.type === "payment").length;
+  const expenseCount = active.filter(entry => entry.type === "expense").length;
+  const unassignedPayments = active.filter(entry => entry.type === "payment" && entry.apartmentId == null);
+
+  lines.push("TÁRSASHÁZ ÓVODA UTCA 6/A");
+  lines.push("TELJES ADATBÁZIS ÖSSZEFOGLALÓ");
+  lines.push("");
+  lines.push(`Generálva: ${nowStamp()}`);
+  lines.push("");
+  lines.push(`Nyitó készpénz: ${formatFt(state.openingCash)}`);
+  lines.push(`Aktív befizetések összesen: ${formatFt(totalPayments())}`);
+  lines.push(`Aktív kiadások összesen: ${formatFt(totalExpenses())}`);
+  lines.push(`Aktuális pénztár: ${formatFt(currentCash())}`);
+  lines.push(`Aktív tranzakciók: ${active.length}`);
+  lines.push(`Archivált tranzakciók: ${archived.length}`);
+  lines.push(`Aktív befizetések darabszáma: ${paymentCount}`);
+  lines.push(`Aktív kiadások darabszáma: ${expenseCount}`);
+  lines.push("");
+  lines.push("TÖRZSADATOK ÉS EGYENLEGEK");
+  lines.push("");
+
+  for (const apt of state.apartments) {
+    lines.push(
+      `${apt.id}. ${apt.name} | Havi közös költség: ${formatFt(apt.monthlyFee)} | Befizetve: ${formatFt(apartmentPaid(apt.id))} | Egyenleg: ${formatFt(apartmentBalance(apt.id))}`
+    );
+  }
+
+  lines.push("");
+  lines.push("ADATMINŐSÉGI JELZÉSEK");
+  lines.push("");
+  lines.push(`Kézi ellenőrzést igénylő, lakáshoz/garázshoz nem kötött befizetések: ${unassignedPayments.length}`);
+
+  if (unassignedPayments.length) {
+    for (const entry of unassignedPayments) {
+      lines.push(`${entry.createdAt} | ${formatFt(entry.amount)} | ${entry.note || "-"}`);
+    }
+  }
+
+  lines.push("");
+  lines.push("AKTÍV PÉNZTÁRNAPLÓ");
+  lines.push("");
+
+  for (const entry of sortedEntries().slice().reverse()) {
+    if (entry.type === "payment") {
+      lines.push(`${entry.createdAt} | BEFIZETÉS | ${entry.apartmentName} | ${entry.monthLabel || "-"} | ${entry.note || "-"} | +${formatFt(entry.amount)}`);
+    } else {
+      lines.push(`${entry.createdAt} | KIADÁS | ${entry.title} | ${entry.note || "-"} | -${formatFt(entry.amount)}`);
+    }
+  }
+
+  return lines.join("\n");
+}
+
+function buildDatabaseReport() {
+  const dateKey = new Date().toISOString().slice(0, 10);
+
+  return {
+    filename: `hazpenztar_teljes_adatbazis_${dateKey}.pdf`,
+    title: `Teljes adatbázis összefoglaló - ${dateKey}`,
+    content: buildDatabaseReportText()
+  };
+}
+
+function selectedPdfReport() {
+  return pdfWorkspace.reports.find(report => report.path === pdfWorkspace.selectedPath) || null;
+}
+
+function renderPdfWorkspace() {
+  const selected = selectedPdfReport();
+
+  if (!pdfWorkspace.reports.length) {
+    return `
+      <div class="span-2 hint-text">
+        Még nincs előkészített PDF ebben a munkamenetben.
+      </div>
+    `;
+  }
+
+  return `
+    <div class="span-2 pdf-workspace">
+      <div class="pdf-list">
+        ${pdfWorkspace.reports.map(report => `
+          <button
+            type="button"
+            class="pdf-list-item ${report.path === pdfWorkspace.selectedPath ? "active" : ""}"
+            onclick="app.selectPdf('${escapeJsString(report.path)}')"
+          >
+            <strong>${escapeHtml(report.title)}</strong>
+            <span>${escapeHtml(report.filename)}</span>
+          </button>
+        `).join("")}
+      </div>
+
+      <div class="pdf-panel">
+        <div class="pdf-panel-head">
+          <div>
+            <strong>${escapeHtml(selected?.title || "Nincs kiválasztott PDF")}</strong>
+            ${selected ? `<small>${escapeHtml(selected.path)}</small>` : ""}
+          </div>
+          <div class="pdf-actions">
+            <button class="secondary" type="button" onclick="app.openSelectedPdf()" ${selected ? "" : "disabled"}>Megnyitás</button>
+            <button class="secondary" type="button" onclick="app.openSelectedPdfFolder()" ${selected ? "" : "disabled"}>Mappa</button>
+            <button class="primary" type="button" onclick="app.printSelectedPdf()" ${selected ? "" : "disabled"}>Nyomtatás</button>
+            <button class="primary" type="button" onclick="app.emailSelectedPdf()" ${selected ? "" : "disabled"}>E-mail</button>
+          </div>
+        </div>
+
+        ${pdfWorkspace.previewSrc
+          ? `<iframe class="pdf-preview" title="PDF előnézet" src="${pdfWorkspace.previewSrc}"></iframe>`
+          : `<div class="pdf-empty">Válassz PDF-et az előnézethez.</div>`
+        }
+      </div>
+    </div>
+  `;
+}
+
+function renderPdfReportControls(currentMonthKey) {
+  return `
+    <div class="form-grid">
+      <div class="span-2">
+        <label>Célmappa a PDF-ekhez</label>
+        <input
+          class="text-input full"
+          type="text"
+          value="${escapeHtml(state.reportSettings.targetFolder || "")}"
+          placeholder="Még nincs kiválasztva"
+          readonly
+        />
+      </div>
+
+      <div class="span-2 report-actions">
+        <button class="primary" type="button" onclick="app.chooseReportFolder()">Mappa kiválasztása</button>
+        <button class="primary" type="button" onclick="app.generateMonthlyReportsNow()">Havi PDF-ek</button>
+        <button class="primary" type="button" onclick="app.generateDatabasePdfNow()">Teljes adatbázis PDF</button>
+        <button class="primary" type="button" onclick="app.generateAllPdfNow()">Minden PDF elkészítése</button>
+        <button class="primary" type="button" onclick="app.exportBackup()">Adatbázis export / backup</button>
+        <input type="file" id="jsonImportInput" accept=".json" style="display:none" onchange="app.importJson()" />
+        <button type="button" onclick="document.getElementById('jsonImportInput').click()">Adatbázis JSON import</button>
+      </div>
+
+      <div class="span-2 checkbox-row">
+        <input
+          id="autoMonthlyEnabled"
+          type="checkbox"
+          ${state.reportSettings.autoMonthlyEnabled ? "checked" : ""}
+          onchange="app.setAutoMonthlyEnabled(this.checked)"
+        />
+        <label for="autoMonthlyEnabled" class="checkbox-label">Havonta egyszer automatikus generálás</label>
+      </div>
+
+      <div class="span-2 hint-text">
+        Aktuális hónap: <strong>${currentMonthKey}</strong><br>
+        Reporton megjelenő hónap: <strong>${escapeHtml(monthLabelHu(currentMonthKey))}</strong><br>
+        Utoljára legenerált hónap: <strong>${escapeHtml(state.reportSettings.lastGeneratedMonth || "még nincs")}</strong>
+      </div>
+
+      ${reportStatus.text ? `
+        <div class="span-2 status-box ${reportStatus.kind}">
+          ${escapeHtml(reportStatus.text)}
+        </div>
+      ` : ""}
+
+      ${renderPdfWorkspace()}
+    </div>
+  `;
 }
 
 function renderEntryRows(entries, archivedMode = false) {
@@ -461,6 +796,7 @@ function render() {
         <button class="menu" data-section="paymentsSection">Befizetések</button>
         <button class="menu" data-section="expensesSection">Kiadások</button>
         <button class="menu" data-section="ledgerSection">Pénztárnapló</button>
+        <button class="menu" data-section="pdfSection">PDF riportok</button>
         <button class="menu" data-section="settingsSection">Beállítások</button>
       </aside>
 
@@ -514,7 +850,7 @@ function render() {
                       class="number-input"
                       type="number"
                       min="0"
-                      value="${Number(apt.monthlyFee)}"
+                      value="${normalizeMoney(apt.monthlyFee)}"
                       onchange="app.setMonthlyFee(${apt.id}, this.value)"
                     />
                   </td>
@@ -631,6 +967,11 @@ function render() {
           </div>
         </section>
 
+        <section id="pdfSection" class="app-section card">
+          <h2>PDF riportok, nyomtatás és e-mail</h2>
+          ${renderPdfReportControls(currentMonthKey)}
+        </section>
+
         <section id="settingsSection" class="app-section card">
           <h2>Beállítások és titkos parancs</h2>
 
@@ -641,7 +982,7 @@ function render() {
               class="number-input"
               type="number"
               min="0"
-              value="${Number(state.openingCash)}"
+              value="${normalizeMoney(state.openingCash)}"
             />
             <button class="primary" onclick="app.saveOpeningCash()">Mentés</button>
           </div>
@@ -664,55 +1005,6 @@ function render() {
               <button type="button" class="primary" onclick="app.checkEasterEgg()">Ellenőrzés</button>
             </div>
             <div id="easterResult" class="mt12"></div>
-          </div>
-
-          <hr class="sep" />
-
-          <div>
-            <h3>Havi PDF reportok</h3>
-
-            <div class="form-grid">
-              <div class="span-2">
-                <label>Célmappa a Mac-en</label>
-                <input
-                  class="text-input full"
-                  type="text"
-                  value="${escapeHtml(state.reportSettings.targetFolder || "")}"
-                  placeholder="Még nincs kiválasztva"
-                  readonly
-                />
-              </div>
-
-              <div class="span-2 report-actions">
-                <button class="primary" type="button" onclick="app.chooseReportFolder()">Mappa kiválasztása</button>
-                <button class="primary" type="button" onclick="app.generateMonthlyReportsNow()">Havi report készítése most</button>
-                <button class="primary" type="button" onclick="app.exportBackup()">Adatbázis export / backup</button>
-				<input type="file" id="jsonImportInput" accept=".json" style="display:none" onchange="app.importJson()" />
-				<button onclick="document.getElementById('jsonImportInput').click()">Adatbázis JSON import</button>
-			  </div>
-
-              <div class="span-2 checkbox-row">
-                <input
-                  id="autoMonthlyEnabled"
-                  type="checkbox"
-                  ${state.reportSettings.autoMonthlyEnabled ? "checked" : ""}
-                  onchange="app.setAutoMonthlyEnabled(this.checked)"
-                />
-                <label for="autoMonthlyEnabled" class="checkbox-label">Havonta egyszer automatikus generálás</label>
-              </div>
-
-              <div class="span-2 hint-text">
-                Aktuális hónap: <strong>${currentMonthKey}</strong><br>
-                Reporton megjelenő hónap: <strong>${escapeHtml(monthLabelHu(currentMonthKey))}</strong><br>
-                Utoljára legenerált hónap: <strong>${escapeHtml(state.reportSettings.lastGeneratedMonth || "még nincs")}</strong>
-              </div>
-
-              ${reportStatus.text ? `
-                <div class="span-2 status-box ${reportStatus.kind}">
-                  ${escapeHtml(reportStatus.text)}
-                </div>
-              ` : ""}
-            </div>
           </div>
         </section>
 
@@ -902,6 +1194,110 @@ function render() {
       display:flex;
       gap:10px;
       flex-wrap:wrap;
+    }
+
+    .pdf-workspace {
+      display:grid;
+      grid-template-columns: minmax(220px, 320px) 1fr;
+      gap:14px;
+      min-height:520px;
+    }
+
+    .pdf-list {
+      border:1px solid #e2e8f0;
+      border-radius:8px;
+      overflow:auto;
+      max-height:520px;
+      background:#f8fafc;
+    }
+
+    .pdf-list-item {
+      display:block;
+      width:100%;
+      border:0;
+      border-bottom:1px solid #e2e8f0;
+      border-radius:0;
+      box-shadow:none;
+      background:transparent;
+      padding:11px 12px;
+      text-align:left;
+      cursor:pointer;
+    }
+
+    .pdf-list-item strong,
+    .pdf-list-item span {
+      display:block;
+      overflow:hidden;
+      text-overflow:ellipsis;
+      white-space:nowrap;
+    }
+
+    .pdf-list-item span {
+      margin-top:4px;
+      color:#64748b;
+      font-size:12px;
+      font-weight:400;
+    }
+
+    .pdf-list-item.active {
+      background:#fff7ed;
+      border-left:4px solid #f59e0b;
+    }
+
+    .pdf-panel {
+      border:1px solid #e2e8f0;
+      border-radius:8px;
+      overflow:hidden;
+      background:white;
+      min-width:0;
+    }
+
+    .pdf-panel-head {
+      display:flex;
+      justify-content:space-between;
+      align-items:flex-start;
+      gap:12px;
+      padding:12px;
+      border-bottom:1px solid #e2e8f0;
+      background:#f8fafc;
+    }
+
+    .pdf-panel-head small {
+      display:block;
+      max-width:560px;
+      margin-top:4px;
+      color:#64748b;
+      overflow:hidden;
+      text-overflow:ellipsis;
+      white-space:nowrap;
+    }
+
+    .pdf-actions {
+      display:flex;
+      gap:8px;
+      flex-wrap:wrap;
+      justify-content:flex-end;
+    }
+
+    .pdf-actions button:disabled {
+      opacity:0.45;
+      cursor:not-allowed;
+    }
+
+    .pdf-preview {
+      width:100%;
+      height:458px;
+      border:0;
+      background:#eef2f7;
+    }
+
+    .pdf-empty {
+      display:flex;
+      align-items:center;
+      justify-content:center;
+      height:458px;
+      color:#64748b;
+      background:#f8fafc;
     }
 
     .checkbox-row {
@@ -1160,6 +1556,14 @@ function render() {
         grid-column: span 1;
       }
 
+      .pdf-workspace {
+        grid-template-columns: 1fr;
+      }
+
+      .pdf-panel-head {
+        flex-direction:column;
+      }
+
       .footer {
         position: static;
         padding: 0 24px 16px;
@@ -1221,6 +1625,7 @@ function applyActiveSection(sectionId) {
     "paymentsSection",
     "expensesSection",
     "ledgerSection",
+    "pdfSection",
     "settingsSection"
   ];
 
@@ -1278,7 +1683,12 @@ const app = {
   renameApartment(id, value) {
     const apt = state.apartments.find(a => Number(a.id) === Number(id));
     if (!apt) return;
-    apt.name = value.trim() || `Lakás ${id}`;
+    apt.name = resolveApartmentName(id, value);
+    for (const entry of state.entries) {
+      if (entry.type === "payment" && Number(entry.apartmentId) === Number(id)) {
+        entry.apartmentName = apt.name;
+      }
+    }
     saveState();
     render();
   },
@@ -1286,14 +1696,14 @@ const app = {
   setMonthlyFee(id, value) {
     const apt = state.apartments.find(a => Number(a.id) === Number(id));
     if (!apt) return;
-    apt.monthlyFee = Math.max(0, Number(value || 0));
+    apt.monthlyFee = positiveMoneyFromInput(value);
     saveState();
     render();
   },
 
   saveOpeningCash() {
     const input = document.getElementById("openingCashInput");
-    state.openingCash = Math.max(0, Number(input.value || 0));
+    state.openingCash = positiveMoneyFromInput(input.value);
     saveState();
     render();
   },
@@ -1348,30 +1758,177 @@ const app = {
 
     const reports = buildMonthlyReports(monthKey);
 
-    const savedFolder = await core.invoke("save_monthly_reports", {
+    const savedReports = await core.invoke("save_pdf_reports", {
       targetFolder: state.reportSettings.targetFolder,
-      monthKey,
+      folderName: `${monthKey}_havi_report`,
       reports
     });
 
     state.reportSettings.lastGeneratedMonth = monthKey;
     saveState();
+    await this.registerPdfReports(savedReports);
 
     if (!automaticMode) {
-      setReportStatus(`A havi reportok elkészültek ide: ${savedFolder}`, "success");
+      setReportStatus(`A havi PDF-ek elkészültek: ${savedReports.length} fájl.`, "success");
     }
 
-    return savedFolder;
+    return savedReports;
   },
 
   async generateMonthlyReportsNow() {
     clearReportStatus();
+    setActiveSection("pdfSection");
 
     try {
       const monthKey = monthKeyFromDate(new Date());
       await this.generateMonthlyReports(monthKey, false);
     } catch (error) {
       setReportStatus(`Report generálási hiba: ${error.message || error}`, "error");
+    }
+  },
+
+  async generateDatabasePdfNow() {
+    clearReportStatus();
+    setActiveSection("pdfSection");
+
+    try {
+      if (!state.reportSettings.targetFolder) {
+        throw new Error("Előbb válassz ki egy célmappát a PDF-ekhez.");
+      }
+
+      const core = window.__TAURI__?.core;
+      if (!core || typeof core.invoke !== "function") {
+        throw new Error("A Tauri invoke API nem érhető el.");
+      }
+
+      const dateKey = new Date().toISOString().slice(0, 10);
+      const savedReports = await core.invoke("save_pdf_reports", {
+        targetFolder: state.reportSettings.targetFolder,
+        folderName: `${dateKey}_teljes_adatbazis`,
+        reports: [buildDatabaseReport()]
+      });
+
+      await this.registerPdfReports(savedReports);
+      setReportStatus("A teljes adatbázis PDF elkészült.", "success");
+    } catch (error) {
+      setReportStatus(`Teljes adatbázis PDF hiba: ${error.message || error}`, "error");
+    }
+  },
+
+  async generateAllPdfNow() {
+    clearReportStatus();
+    setActiveSection("pdfSection");
+
+    try {
+      const monthKey = monthKeyFromDate(new Date());
+      const monthlyReports = await this.generateMonthlyReports(monthKey, true);
+
+      const core = window.__TAURI__?.core;
+      const dateKey = new Date().toISOString().slice(0, 10);
+      const databaseReports = await core.invoke("save_pdf_reports", {
+        targetFolder: state.reportSettings.targetFolder,
+        folderName: `${dateKey}_teljes_adatbazis`,
+        reports: [buildDatabaseReport()]
+      });
+
+      await this.registerPdfReports(databaseReports);
+      setReportStatus(`Minden PDF elkészült: ${monthlyReports.length + databaseReports.length} fájl.`, "success");
+    } catch (error) {
+      setReportStatus(`PDF generálási hiba: ${error.message || error}`, "error");
+    }
+  },
+
+  async registerPdfReports(savedReports) {
+    const incoming = Array.isArray(savedReports) ? savedReports : [];
+    const byPath = new Map(pdfWorkspace.reports.map(report => [report.path, report]));
+
+    for (const report of incoming) {
+      if (report?.path) {
+        byPath.set(report.path, report);
+      }
+    }
+
+    pdfWorkspace.reports = [...byPath.values()];
+
+    if (incoming[0]?.path) {
+      await this.selectPdf(incoming[0].path, false);
+    } else {
+      render();
+    }
+  },
+
+  async selectPdf(path, rerenderBeforeLoad = true) {
+    const report = pdfWorkspace.reports.find(item => item.path === path);
+    if (!report) return;
+
+    pdfWorkspace.selectedPath = report.path;
+    pdfWorkspace.selectedTitle = report.title;
+    pdfWorkspace.previewSrc = "";
+
+    if (rerenderBeforeLoad) render();
+
+    try {
+      const core = window.__TAURI__?.core;
+      if (!core || typeof core.invoke !== "function") {
+        throw new Error("A Tauri invoke API nem érhető el.");
+      }
+
+      const base64 = await core.invoke("read_pdf_base64", { path: report.path });
+      pdfWorkspace.previewSrc = `data:application/pdf;base64,${base64}`;
+      render();
+    } catch (error) {
+      setReportStatus(`PDF előnézeti hiba: ${error.message || error}`, "error");
+    }
+  },
+
+  async openSelectedPdf() {
+    await this.invokeForSelectedPdf("open_file", "PDF megnyitva.");
+  },
+
+  async openSelectedPdfFolder() {
+    await this.invokeForSelectedPdf("open_parent_folder", "PDF mappa megnyitva.");
+  },
+
+  async printSelectedPdf() {
+    await this.invokeForSelectedPdf("print_pdf", "Nyomtatás elindítva.");
+  },
+
+  async emailSelectedPdf() {
+    const selected = selectedPdfReport();
+    if (!selected) return;
+
+    try {
+      const core = window.__TAURI__?.core;
+      if (!core || typeof core.invoke !== "function") {
+        throw new Error("A Tauri invoke API nem érhető el.");
+      }
+
+      const message = await core.invoke("compose_email_with_pdf", {
+        path: selected.path,
+        subject: selected.title,
+        body: `Csatolva küldöm a PDF-et: ${selected.filename}`
+      });
+
+      setReportStatus(message, "success");
+    } catch (error) {
+      setReportStatus(`E-mail előkészítési hiba: ${error.message || error}`, "error");
+    }
+  },
+
+  async invokeForSelectedPdf(command, successMessage) {
+    const selected = selectedPdfReport();
+    if (!selected) return;
+
+    try {
+      const core = window.__TAURI__?.core;
+      if (!core || typeof core.invoke !== "function") {
+        throw new Error("A Tauri invoke API nem érhető el.");
+      }
+
+      await core.invoke(command, { path: selected.path });
+      setReportStatus(successMessage, "success");
+    } catch (error) {
+      setReportStatus(`PDF műveleti hiba: ${error.message || error}`, "error");
     }
   },
 
@@ -1423,7 +1980,7 @@ const app = {
 
   addPayment() {
     const apartmentId = Number(document.getElementById("paymentApartment").value);
-    const amount = Number(document.getElementById("paymentAmount").value || 0);
+    const amount = positiveMoneyFromInput(document.getElementById("paymentAmount").value);
     const monthLabel = document.getElementById("paymentMonth").value.trim();
     const note = document.getElementById("paymentNote").value.trim();
 
@@ -1455,7 +2012,7 @@ const app = {
 
   addExpense() {
     const title = document.getElementById("expenseTitle").value.trim();
-    const amount = Number(document.getElementById("expenseAmount").value || 0);
+    const amount = positiveMoneyFromInput(document.getElementById("expenseAmount").value);
     const note = document.getElementById("expenseNote").value.trim();
 
     if (!title) {
@@ -1533,6 +2090,43 @@ const app = {
   replayCurtain() {
     localStorage.removeItem("curtainPlayed");
     render();
+  },
+
+  importJson() {
+    const input = document.getElementById("jsonImportInput");
+
+    if (!input || !input.files || !input.files[0]) {
+      alert("Válassz ki egy JSON fájlt!");
+      return;
+    }
+
+    const file = input.files[0];
+    const reader = new FileReader();
+
+    reader.onload = function (event) {
+      try {
+        const json = JSON.parse(event.target.result);
+
+        if (!json || !json.data || typeof json.data !== "object") {
+          alert("Hibás JSON formátum!");
+          return;
+        }
+
+        createAutoBackup("before_json_import");
+        state = normalizeState(json.data);
+        saveState();
+        render();
+
+        alert("Sikeres import!");
+      } catch (err) {
+        console.error(err);
+        alert("Hiba történt a betöltés során!");
+      } finally {
+        input.value = "";
+      }
+    };
+
+    reader.readAsText(file);
   }
 };
 
@@ -1542,43 +2136,3 @@ console.log("Created by Deme Gábor © 2026");
 window.__deme_signature = "Created by Deme Gábor © 2026";
 
 render();
-createAutoBackup
-
-app.importJson = function () {
-  const input = document.getElementById("jsonImportInput");
-
-  if (!input || !input.files || !input.files[0]) {
-    alert("Válassz ki egy JSON fájlt!");
-    return;
-  }
-
-  const file = input.files[0];
-  const reader = new FileReader();
-
-  reader.onload = function (e) {
-    try {
-      const json = JSON.parse(e.target.result);
-
-      if (!json || !json.data) {
-        alert("Hibás JSON formátum!");
-        return;
-      }
-
-      state.openingCash = json.data.openingCash || 0;
-      state.apartments = json.data.apartments || [];
-      state.entries = json.data.entries || [];
-      state.reportSettings = json.data.reportSettings || state.reportSettings || {};
-      state.uiSettings = json.data.uiSettings || state.uiSettings || {};
-
-      saveState();
-      render();
-
-      alert("Sikeres import!");
-    } catch (err) {
-      console.error(err);
-      alert("Hiba történt a betöltés során!");
-    }
-  };
-
-  reader.readAsText(file);
-};
